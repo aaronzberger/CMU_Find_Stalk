@@ -1,0 +1,8 @@
+uint32 num_frames
+float64 timeout
+---
+bool success
+geometry_msgs/Point position
+geometry_msgs/Point margins
+float64 confidence
+uint16 num_frames
