@@ -3,19 +3,27 @@ import rospy
 import tf2_ros
 import tf_conversions
 from geometry_msgs.msg import Point
-
-INTRINSIC = np.array([[431.6290588378906, 0.0, 421.2195739746094, 0.0],
-                      [0.0, 430.9979248046875,  241.19505310058594, 0.0],
-                      [0.0,       0.0,        1.0, 0.0]])
+from sensor_msgs.msg import CameraInfo
 
 
 class Transformer():
+    '''
+    Helper class for transformations at a specific time
+    '''
     def __init__(self):
+        # Get the transformation from cam to robot
         tf_buffer = tf2_ros.Buffer()
         tf2_ros.TransformListener(tf_buffer)
 
         trans = tf_buffer.lookup_transform('cam_link', 'base_link', rospy.Time(0), rospy.Duration(1))
         self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(trans.transform))
+
+        camera_info = rospy.wait_for_message('device_0/sensor_0/Color_0/info/camera_info', CameraInfo)
+        depth_info = rospy.wait_for_message('device_0/sensor_0/Depth_0/info/camera_info', CameraInfo)
+        self.intrinsic = np.array(camera_info.K).reshape((3, 3))
+        self.depth_intrinsic = np.array(depth_info.K).reshape((3, 3))
+
+        self.width, self.height = camera_info.width, camera_info.height
 
     def transform_stalk(self, stalk: Point) -> Point:
         '''
@@ -28,8 +36,8 @@ class Transformer():
             transformed_stalk (geometry_msgs.msg.Point): The transformed stalk
         '''
         # Normalize the stalk
-        x = (stalk.x - INTRINSIC[0, 2]) / INTRINSIC[0, 0]
-        y = (stalk.y - INTRINSIC[1, 2]) / INTRINSIC[1, 1]
+        x = (stalk.x - self.intrinsic[0, 2]) / self.intrinsic[0, 0]
+        y = (stalk.y - self.intrinsic[1, 2]) / self.intrinsic[1, 1]
 
         # Scale with depth
         x *= stalk.z
