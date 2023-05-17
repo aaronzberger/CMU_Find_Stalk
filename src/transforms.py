@@ -1,28 +1,21 @@
-from geometry_msgs.msg import Point
 import numpy as np
 import rospy
-# from geometry_msgs.msg import TransformStamped
 import tf2_ros
 import tf_conversions
+from geometry_msgs.msg import Point
 
-
-
-INTRINSIC = np.array([[1431.6832, 0.0, 704.606, 0.0],
-                      [0.0, 1431.6832,  545.11274, 0.0],
+INTRINSIC = np.array([[431.6290588378906, 0.0, 421.2195739746094, 0.0],
+                      [0.0, 430.9979248046875,  241.19505310058594, 0.0],
                       [0.0,       0.0,        1.0, 0.0]])
 
 
 class Transformer():
     def __init__(self):
-        # self.cam_link = rospy.wait_for_message('/camera_link', TransformStamped)
-        # self.base_link = rospy.wait_for_message('/base_link', TransformStamped)
-
         tf_buffer = tf2_ros.Buffer()
         tf2_ros.TransformListener(tf_buffer)
 
         trans = tf_buffer.lookup_transform('cam_link', 'base_link', rospy.Time(0), rospy.Duration(1))
         self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(trans.transform))
-
 
     def transform_stalk(self, stalk: Point) -> Point:
         '''

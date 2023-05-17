@@ -1,9 +1,8 @@
+from detectron2 import model_zoo
+from detectron2.config import get_cfg
 from detectron2.data.catalog import MetadataCatalog
 from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2 import model_zoo
-from detectron2.utils.visualizer import Visualizer, ColorMode
-
+from detectron2.utils.visualizer import ColorMode, Visualizer
 
 MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
 SCORE_THRESHOLD = 0.6
@@ -66,10 +65,9 @@ class Mask_R_CNN:
         '''
 
         v = Visualizer(input_image[:, :, ::-1],
-                       metadata=MetadataCatalog.get('empty'), 
-                       scale=0.8,
-                       instance_mode=ColorMode.IMAGE_BW  # remove the colors of unsegmented pixels
-        )
+                       metadata=MetadataCatalog.get('empty'),
+                       instance_mode=ColorMode.IMAGE_BW)  # remove the colors of unsegmented pixels
+
         v = v.draw_instance_predictions(output['instances'].to('cpu'))
-        
+
         return v.get_image()[:, :, ::-1]
