@@ -1,73 +1,116 @@
-from detectron2 import model_zoo
-from detectron2.config import get_cfg
-from detectron2.data.catalog import MetadataCatalog
-from detectron2.engine import DefaultPredictor
-from detectron2.utils.visualizer import ColorMode, Visualizer
-
-MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
-SCORE_THRESHOLD = 0.6
-CUDA_DEVICE_NO = 0
+from segment_anything import sam_model_registry, SamAutomaticMaskGenerator
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+import cv2
+import sys
 
 
-class Mask_R_CNN:
-    def __init__(self):
-        self.model_cfg = get_cfg()
-        self.model_cfg.merge_from_file(
-            model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
-        )
-        self.model_cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = SCORE_THRESHOLD
-        self.model_cfg.MODEL.WEIGHTS = MODEL_PATH
-        self.model_cfg.MODEL.ROI_HEADS.NUM_CLASSES = 2  # background, trunk
-        self.model_cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.1
-        self.model_cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = (128)
-        self.model_cfg.MODEL.DEVICE = 'cuda:{}'.format(CUDA_DEVICE_NO) if CUDA_DEVICE_NO >= 0 else 'cpu'
+sam_checkpoint = "/home/frc/catkin_ws/src/stalk_detect/sam_vit_h_4b8939.pth"
+model_type = "vit_h"
 
-        self.model = DefaultPredictor(self.model_cfg)
+device = "cuda"
 
-    def forward(self, image):
-        '''
-        Forward Prop for the Mask-R-CNN model
+sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
+sam.to(device=device)
 
-        Parameters
-            image (cv.Mat/np.ndarray): the input image
+mask_generator = SamAutomaticMaskGenerator(sam)
 
-        Returns
-            np.ndarray: confidence scores for each prediction
-            np.ndarray: (N X 4) array of bounding box corners
-            np.ndarray: (N X H X W) masks for each prediction,
-                where the channel 0 index corresponds to the prediction index
-                and the other channels are boolean values representing whether
-                that pixel is inside that prediction's mask
-            dict: output object from detectron2 predictor
-        '''
-        outputs = self.model(image)
 
-        scores = outputs['instances'].scores.to('cpu').numpy()
+image = cv2.imread(sys.argv[1])
+image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
 
-        bboxes = outputs['instances'].pred_boxes.tensor.to('cpu').numpy()
-        masks = outputs['instances'].pred_masks.to('cpu').numpy()
+green_pixels = np.empty((0, 2))
 
-        # Convert xyxy corner format to xywh center format
-        bboxes_center = [[(i[0] + i[2]) / 2, (i[1] + i[3]) / 2, abs(i[2] - i[0]), abs(i[3] - i[1])] for i in bboxes]
+# Get the indices of up to 1000 random green pixels in image: split the image into 100 boxes and get 10 random pixels from each box
+x_splits = np.array_split(np.arange(image.shape[0]), 10)
+y_splits = np.array_split(np.arange(image.shape[1]), 10)
+for x in x_splits:
+    for y in y_splits:
+        # Green pixels are between 40 and 100 in H, and between 100 and 255 in S
+        new_pixels = np.argwhere(np.logical_and(image[x[0]:x[-1], y[0]:y[-1], 1] >= 100,
+                                 np.logical_and(image[x[0]:x[-1], y[0]:y[-1], 0] >= 40, image[x[0]:x[-1], y[0]:y[-1], 0] <= 100)))
 
-        return scores, bboxes_center, masks, outputs
+        # Choose no more than 10 random pixels from this box
+        if len(new_pixels) > 10:
+            new_pixels = new_pixels[np.random.choice(len(new_pixels), 10, replace=False)]
 
-    def visualize(self, input_image, output):
-        '''
-        Visualize the results of the model
+        # Add the pixels to the list
+        green_pixels = np.concatenate((green_pixels, new_pixels + np.array([x[0], y[0]])))
 
-        Parameters
-            image (cv.Mat/np.ndarray): the input image
-            output (dict): output from the detectron2 predictor
 
-        Returns
-            np.ndarray: visualized results
-        '''
+# Switch the axis (swap x and y)
+green_pixels = np.flip(green_pixels, axis=1)
+print(green_pixels.shape, green_pixels)
 
-        v = Visualizer(input_image[:, :, ::-1],
-                       metadata=MetadataCatalog.get('empty'),
-                       instance_mode=ColorMode.IMAGE_BW)  # remove the colors of unsegmented pixels
+# Normalize the green pixels
+green_pixels = green_pixels / np.array([image.shape[1], image.shape[0]])
 
-        v = v.draw_instance_predictions(output['instances'].to('cpu'))
+image = cv2.cvtColor(image, cv2.COLOR_HSV2RGB)
 
-        return v.get_image()[:, :, ::-1]
+# Display the pixels on the image
+plt.figure(figsize=(20, 20))
+plt.imshow(image)
+
+# Display the grid from x and y splits
+for x in x_splits:
+    plt.plot([0, image.shape[1]], [x[0], x[0]], color='red')
+for y in y_splits:
+    plt.plot([y[0], y[0]], [0, image.shape[0]], color='red')
+
+# Display the green pixels in black
+plt.scatter(green_pixels[:, 0] * image.shape[1], green_pixels[:, 1] * image.shape[0], color='black', s=1)
+plt.axis('off')
+plt.show()
+
+# Add an axis to the green pixels
+green_pixels = np.expand_dims(green_pixels, axis=0)
+
+print(green_pixels.shape)
+
+mask_generator = SamAutomaticMaskGenerator(
+    model=sam,
+    points_per_side=None,
+    pred_iou_thresh=0.86,
+    stability_score_thresh=0.92,
+    crop_n_layers=0,
+    crop_n_points_downscale_factor=1,
+    min_mask_region_area=50,  # Requires open-cv to run post-processing
+    point_grids=green_pixels
+)
+
+
+start_time = torch.cuda.Event(enable_timing=True)
+end_time = torch.cuda.Event(enable_timing=True)
+
+start_time.record()
+torch.cuda.synchronize()
+masks = mask_generator.generate(image)
+end_time.record()
+print(f"Time taken: {start_time.elapsed_time(end_time)}ms")
+
+
+def show_anns(anns):
+    if len(anns) == 0:
+        return
+    sorted_anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
+    ax = plt.gca()
+    ax.set_autoscale_on(False)
+
+    img = np.ones((sorted_anns[0]['segmentation'].shape[0], sorted_anns[0]['segmentation'].shape[1], 4))
+    img[:, :, 3] = 0
+    for ann in sorted_anns:
+        m = ann['segmentation']
+        color_mask = np.concatenate([np.random.random(3), [0.35]])
+        img[m] = color_mask
+    ax.imshow(img)
+
+
+plt.figure(figsize=(20, 20))
+
+# Grayscale the image
+image = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+plt.imshow(image, cmap='gray')
+show_anns(masks)
+plt.axis('off')
+plt.show()
