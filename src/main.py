@@ -167,11 +167,9 @@ class DetectNode:
         if world_pts[-1][2] - world_pts[0][2] < 1:
             return world_pts[-1]
 
-        # Take the two points in which the point 2" from the bottom is between
-        bottom_height = world_pts[0][2]
-        for i in range(1, len(world_pts) - 1):
-            if world_pts[i][2] > bottom_height + 2:
-                return min(world_pts[i - 1:i + 1], key=lambda pt: abs(pt[2] - bottom_height - 2))
+        # Find the point closest to 2" from the bottom of the stalk
+        goal_height = world_pts[0][2] + 2
+        return min(world_pts, key=lambda pt: abs(pt[2] - goal_height))
 
     @classmethod
     def ransac_ground_plane(cls, pointcloud, transformer):
@@ -198,6 +196,28 @@ class DetectNode:
         best_eq, best_inliers = plane.fit(brown_points, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS)
 
         return best_eq
+    
+    @classmethod
+    def get_grasp_point_by_ransac(cls, stalk_features, pointcloud, transformer):
+        '''
+        Find a point closest to 1-3" from the ground plane
+
+        Parameters
+            stalk_features (np.ndarray): The center points of the stalks
+            pointcloud (o3d.geometry.PointCloud): The point cloud
+            transformer (Transformer): The transformer
+
+        Returns
+            grasp_point (geometry_msgs.msg.Point): The best grasp point found
+        '''
+        world_pts = [transformer.transform_point(pt) for pt in stalk_features]
+
+        # Find the ground plane
+        plane = cls.ransac_ground_plane(pointcloud, transformer)
+
+        # Find the point closest to 2" from the ground plane
+        goal_height = -plane[3] + 2
+        return min(world_pts, key=lambda pt: abs(pt[2] - goal_height))
 
     @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
@@ -222,12 +242,10 @@ class DetectNode:
 
             # For option 2, RANSAC the ground plane, then take the point 1-3" from the ground plane
             pointcloud = cls.get_pcl(image, depth_image, transformer)
+            grasp_point = cls.get_grasp_point_by_ransac(stalk_features, pointcloud, transformer)
+            positions.append(grasp_point)
 
             frame_count += 1
-
-            # TODO: Project stalk_features onto pointcloud
-            # TODO: Find the best stalk, and add it to positions
-            positions.append(detected)
 
         cls.sub_images = message_filters.Subscriber(
             '/device_0/sensor_0/Color_0/image/data', Image)
