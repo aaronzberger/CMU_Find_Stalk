@@ -16,13 +16,15 @@ from sklearn.cluster import DBSCAN
 
 from model import Mask_R_CNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
-from transforms import Transformer, INTRINSIC
-import pcl
+from transforms import Transformer
 import open3d as o3d
+import pyransac3d as pyrsc
 
 
 DEPTH_SCALE = 1000.0
 DEPTH_TRUNC = 10
+INLIER_THRESHOLD = 0.05
+MAX_RANSAC_ITERATIONS = 1000
 
 
 class DetectNode:
@@ -148,6 +150,56 @@ class DetectNode:
         return pcd
 
     @classmethod
+    def get_grasp_point_by_mask(cls, stalk_features, mask, transformer):
+        '''
+        Find a point closest to 1-3" from the bottom of the mask
+
+        Parameters
+            stalk_features (np.ndarray): The center points of the stalks
+            mask (np.ndarray): The mask of the detected stalk
+            transformer (Transformer): The transformer
+
+        Returns
+            grasp_point (geometry_msgs.msg.Point): The best grasp point found
+        '''
+        world_pts = [transformer.transform_point(pt) for pt in stalk_features]
+
+        if world_pts[-1][2] - world_pts[0][2] < 1:
+            return world_pts[-1]
+
+        # Take the two points in which the point 2" from the bottom is between
+        bottom_height = world_pts[0][2]
+        for i in range(1, len(world_pts) - 1):
+            if world_pts[i][2] > bottom_height + 2:
+                return min(world_pts[i - 1:i + 1], key=lambda pt: abs(pt[2] - bottom_height - 2))
+
+    @classmethod
+    def ransac_ground_plane(cls, pointcloud, transformer):
+        '''
+        Find the ground plane using RANSAC
+
+        Parameters
+            pointcloud (o3d.geometry.PointCloud): The point cloud
+            transformer (Transformer): The transformer
+
+        Returns
+            plane (np.ndarray): The plane coefficients [A,B,C,D] for Ax+By+Cz+D=0
+        '''
+        A = 150
+        B = 100
+        C = 10
+        colors = np.asarray(pointcloud.colors)
+        # Find the brown points in the point cloud
+        brown_points = np.array(pointcloud.points)[np.argwhere(np.logical_and(
+            colors[2] < A, np.logical_and(abs(colors[0] - colors[1]) < B, np.maximum(colors[0], colors[1]) > C)))]
+
+        # Find the plane using RANSAC
+        plane = pyrsc.Plane()
+        best_eq, best_inliers = plane.fit(brown_points, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS)
+
+        return best_eq
+
+    @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
         cls.call_index += 1
         cls.image_index = -1
@@ -164,6 +216,11 @@ class DetectNode:
             masks = cls.run_detection(image, depth_image)
             stalk_features = cls.get_stalk_features(masks)
 
+            # For option 1, take the point 1-3" from the mask bottom
+            grasp_point = cls.get_grasp_point_by_mask(stalk_features, masks[0], transformer)
+            positions.append(grasp_point)
+
+            # For option 2, RANSAC the ground plane, then take the point 1-3" from the ground plane
             pointcloud = cls.get_pcl(image, depth_image, transformer)
 
             frame_count += 1

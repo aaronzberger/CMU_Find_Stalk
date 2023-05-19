@@ -25,25 +25,25 @@ class Transformer():
 
         self.width, self.height = camera_info.width, camera_info.height
 
-    def transform_stalk(self, stalk: Point) -> Point:
+    def transform_point(self, pt: Point) -> Point:
         '''
-        Transform the stalk from the camera frame to the robot frame.
+        Transform a point from the camera frame to the robot frame.
 
         Parameters
-            stalk (geometry_msgs.msg.Point): The stalk to transform
+            pt (geometry_msgs.msg.Point): The point to transform
 
         Returns
-            transformed_stalk (geometry_msgs.msg.Point): The transformed stalk
+            geometry_msgs.msg.Point: The transformed point
         '''
         # Normalize the stalk
-        x = (stalk.x - self.intrinsic[0, 2]) / self.intrinsic[0, 0]
-        y = (stalk.y - self.intrinsic[1, 2]) / self.intrinsic[1, 1]
+        x = (pt.x - self.intrinsic[0, 2]) / self.intrinsic[0, 0]
+        y = (pt.y - self.intrinsic[1, 2]) / self.intrinsic[1, 1]
 
         # Scale with depth
-        x *= stalk.z
-        y *= stalk.z
+        x *= pt.z
+        y *= pt.z
 
         # Transform
-        transformed_stalk = np.matmul(self.E, np.array([x, y, stalk.z, 1]))
+        transformed_pt = np.matmul(self.E, np.array([x, y, pt.z, 1]))
 
-        return Point(x=transformed_stalk[0], y=transformed_stalk[1], z=transformed_stalk[2])
+        return Point(x=transformed_pt[0], y=transformed_pt[1], z=transformed_pt[2])
