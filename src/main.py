@@ -14,7 +14,7 @@ from message_filters import ApproximateTimeSynchronizer
 from sensor_msgs.msg import Image
 from sklearn.cluster import DBSCAN
 
-from model import Mask_R_CNN
+from model import Detector
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from transforms import Transformer, INTRINSIC
 import pcl
@@ -28,7 +28,7 @@ DEPTH_TRUNC = 10
 class DetectNode:
     @classmethod
     def __init__(cls):
-        cls.model = Mask_R_CNN()
+        cls.model = Detector()
         cls.cv_bridge = CvBridge()
 
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
@@ -39,7 +39,7 @@ class DetectNode:
     @classmethod
     def run_detection(cls, image) -> np.ndarray:
         '''
-        Run the Mask R-CNN model on the given image
+        Run the model on the given image
 
         Parameters
             image (sensor_msgs.msg.Image): The image to run the model on
@@ -51,12 +51,7 @@ class DetectNode:
             image, desired_encoding='bgr8'), cv.COLOR_BGR2RGB)
 
         # Run the model
-        scores, bboxes, masks, output = cls.model.forward(cv_image)
-        masks = masks.astype(np.uint8) * 255
-
-        # Save the image
-        visualized = cls.model.visualize(cv_image, output)
-        cv.imwrite(f'viz/{cls.call_index}-{cls.image_index}.jpg', visualized)
+        masks = cls.model.forward(cv_image)
 
         return masks
 
@@ -72,12 +67,12 @@ class DetectNode:
             stalk_features (np.ndarray): The center points of the stalks
         '''
         # Get the center points of the stalks
-        stalk_features = []
+        stalks_features = []
         for mask in masks:
             # Get the top and bottom height values of the stalk
             bottom_y, top_y = np.nonzero(mask)[1].min(), np.nonzero(mask)[1].max()
 
-            stalk_features.append([np.nonzero(mask[:, bottom_y])[0].mean(), bottom_y])
+            stalk_features = np.array([np.nonzero(mask[:, bottom_y])[0].mean(), bottom_y])
 
             # For every 10 pixels, get the center point
             for y in range(bottom_y, top_y, 10):
@@ -86,7 +81,9 @@ class DetectNode:
 
             stalk_features.append([np.nonzero(mask[:, top_y])[0].mean(), top_y])
 
-        return np.array(stalk_features)
+            stalks_features.append(stalk_features)
+
+        return np.array(stalks_features)
 
     @classmethod
     def determine_best_stalk(cls, positions) -> Point:
@@ -168,7 +165,9 @@ class DetectNode:
 
             frame_count += 1
 
-            # TODO: Project stalk_features onto pointcloud
+            # Project stalk_features onto pointcloud
+            
+
             # TODO: Find the best stalk, and add it to positions
             positions.append(detected)
 
