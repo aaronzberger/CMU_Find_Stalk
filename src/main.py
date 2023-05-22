@@ -176,17 +176,18 @@ class DetectNode:
         return grasp_points
 
     @classmethod
-    def ransac_ground_plane(cls, pointcloud, transformer):
+    def ransac_ground_plane(cls, pointcloud):
         '''
         Find the ground plane using RANSAC
 
         Parameters
             pointcloud (o3d.geometry.PointCloud): The point cloud
-            transformer (Transformer): The transformer
 
         Returns
             plane (np.ndarray): The plane coefficients [A,B,C,D] for Ax+By+Cz+D=0
         '''
+        # NOTE: Alternatively, use pointcloud.segment_plane from open3d
+
         A = 150
         B = 100
         C = 10
@@ -220,7 +221,7 @@ class DetectNode:
             world_pts.append([transformer.transform_point(p) for p in stalk])
 
         # Find the ground plane
-        plane = cls.ransac_ground_plane(pointcloud, transformer)
+        plane = cls.ransac_ground_plane(pointcloud)
 
         # Find the point closest to 2" from the ground plane for each stalk
         # NOTE: This relies on the ground plane being horizontal. For non-horizontal, use point to plane distance
@@ -234,15 +235,44 @@ class DetectNode:
         return grasp_points
 
     @classmethod
+    def combine_pointclouds(cls, pointclouds):
+        '''
+        Combine multiple point clouds into one using ICP
+
+        Parameters
+            pointclouds (list[o3d.geometry.PointCloud]): The point clouds
+
+        Returns
+            pointcloud (o3d.geometry.PointCloud): The combined point cloud
+        '''
+        # # If ICP is needed
+        # transformations = []
+        # trans_init = np.eye(4)
+        # for pcl in pointclouds[1:]:
+        #     result = o3d.pipelines.registration.registration_icp(
+        #         pcl, pointclouds[0], 0.05, trans_init,
+        #         o3d.pipelines.registration.TransformationEstimationPointToPlane())
+        #     transformations.append(result.transformation)
+
+        # Combine the point clouds
+        pointcloud = pointclouds[0]
+        for pcl in pointclouds[1:]:
+            # # Transform the pointcloud to the frame of the first one if ICP is being used
+            # pcl.transform(transformations.pop())
+            pointcloud.points.extend(pcl.points)
+
+    @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
         cls.call_index += 1
         cls.image_index = -1
         start = rospy.get_rostime()
         frame_count = 0
         positions = []
+        all_masks = []
+        pcls = []
 
         def image_depth_callback(image, depth_image):
-            nonlocal frame_count
+            nonlocal frame_count, positions, all_masks, pcls
 
             transformer = Transformer()
 
@@ -265,21 +295,27 @@ class DetectNode:
             # endregion
 
             # region Best Stalk Determination
-            # Option 1: Find the largest mask
-            largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
-            grasp_point = grasp_points[masks.index(largest_mask)][0]
+            # # Option 1: Find the largest mask
+            # largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
+            # grasp_point = grasp_points[masks.index(largest_mask)][0]
+            # corresponding_mask = largest_mask
 
             # Option 2.1: Take the largest mask whose grasp point is 1-3" from the ground plane
             valid_grasp_points = [g for g in grasp_points if g[1] <= 3 and g[1] >= 1]
             valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
             largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
             grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
+            corresponding_mask = largest_valid_mask
 
-            # Option 2.2: Combine the point clouds, RANSAC the ground plane, re-test point
-
+            # Option 2.2: Add all masks, and run 2.1 on the fused pointclouds
+            # positions += grasp_points
+            # all_masks += masks
+            # pcls.append(pointcloud)
             # endregion
 
             positions.append(grasp_point)
+            all_masks.append(corresponding_mask)
+            pcls.append(pointcloud)
 
             frame_count += 1
 
@@ -299,11 +335,18 @@ class DetectNode:
         if len(positions) == 0:
             rospy.logwarn('No stalks detected')
             return GetStalkResponse()
+
+        # Option 1 or 2.1: Simply find the consensus among the individual decisions
         best_stalk = cls.determine_best_stalk(positions)
+
+        # Option 2.2: Combine point clouds, RANSAC the ground plane, and re-test the points
+        # single_pcl = cls.combine_pointclouds(pcls)
+        # grasp_points = cls.get_grasp_points_by_ransac(positions, single_pcl, transformer)
+        # ...
 
         rospy.loginfo('Found stalk at (%f, %f, %f)', best_stalk.x, best_stalk.y, best_stalk.z)
 
-        return best_stalk
+        return GetStalkResponse(success='Done', position=best_stalk, num_frames=cls.image_index)
 
 
 if __name__ == '__main__':
