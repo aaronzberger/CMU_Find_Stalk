@@ -63,7 +63,7 @@ class DetectNode:
         return masks
 
     @classmethod
-    def get_stalk_features(cls, masks) -> np.ndarray:
+    def get_stalks_features(cls, masks) -> np.ndarray:
         '''
         Get the center points going up each stalk
 
@@ -71,24 +71,25 @@ class DetectNode:
             masks (np.ndarray): The masks of the detected stalks
 
         Returns
-            stalk_features (np.ndarray): The center points of the stalks
+            stalks_features (list[np.ndarray]): The center points of the stalks, for each stalk
         '''
         # Get the center points of the stalks
-        stalk_features = []
+        stalks_features = []
         for mask in masks:
             # Get the top and bottom height values of the stalk
             bottom_y, top_y = np.nonzero(mask)[1].min(), np.nonzero(mask)[1].max()
 
-            stalk_features.append([np.nonzero(mask[:, bottom_y])[0].mean(), bottom_y])
+            stalk_features = np.array([np.nonzero(mask[:, bottom_y])[0].mean(), bottom_y])
 
             # For every 10 pixels, get the center point
             for y in range(bottom_y, top_y, 10):
                 # Find the average x value for nonzero pixels at this y value
-                stalk_features.append([np.nonzero(mask[:, y])[0].mean(), y])
+                stalk_features = np.vstack((stalk_features, np.array([np.nonzero(mask[:, y])[0].mean(), y])))
 
-            stalk_features.append([np.nonzero(mask[:, top_y])[0].mean(), top_y])
+            stalk_features = np.vstack((stalk_features, np.array([np.nonzero(mask[:, top_y])[0].mean(), top_y])))
+            stalks_features.append(stalk_features)
 
-        return np.array(stalk_features)
+        return np.array(stalks_features)
 
     @classmethod
     def determine_best_stalk(cls, positions) -> Point:
@@ -150,7 +151,7 @@ class DetectNode:
         return pcd
 
     @classmethod
-    def get_grasp_point_by_mask(cls, stalk_features, mask, transformer):
+    def get_grasp_points_by_mask(cls, stalks_features, mask, transformer):
         '''
         Find a point closest to 1-3" from the bottom of the mask
 
@@ -162,14 +163,17 @@ class DetectNode:
         Returns
             grasp_point (geometry_msgs.msg.Point): The best grasp point found
         '''
-        world_pts = [transformer.transform_point(pt) for pt in stalk_features]
-
-        if world_pts[-1][2] - world_pts[0][2] < 1:
-            return world_pts[-1]
+        world_pts = []
+        for stalk in stalks_features:
+            world_pts.append([transformer.transform_point(p) for p in stalk])
 
         # Find the point closest to 2" from the bottom of the stalk
-        goal_height = world_pts[0][2] + 2
-        return min(world_pts, key=lambda pt: abs(pt[2] - goal_height))
+        grasp_points = []
+        for stalk in world_pts:
+            goal_height = stalk[0][2] + 2
+            grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height)))
+
+        return grasp_points
 
     @classmethod
     def ransac_ground_plane(cls, pointcloud, transformer):
@@ -196,28 +200,38 @@ class DetectNode:
         best_eq, best_inliers = plane.fit(brown_points, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS)
 
         return best_eq
-    
+
     @classmethod
-    def get_grasp_point_by_ransac(cls, stalk_features, pointcloud, transformer):
+    def get_grasp_points_by_ransac(cls, stalks_features, pointcloud, transformer):
         '''
-        Find a point closest to 1-3" from the ground plane
+        Find a point closest to 1-3" from the ground plane for each stalk
 
         Parameters
-            stalk_features (np.ndarray): The center points of the stalks
+            stalks_features (list[np.ndarray]): The center points of the stalks
             pointcloud (o3d.geometry.PointCloud): The point cloud
             transformer (Transformer): The transformer
 
         Returns
-            grasp_point (geometry_msgs.msg.Point): The best grasp point found
+            grasp_points ([[geometry_msgs.msg.Point, distance_to_ground]]):
+                The best grasp points found for each stalk, and their distance to the ground plane
         '''
-        world_pts = [transformer.transform_point(pt) for pt in stalk_features]
+        world_pts = []
+        for stalk in stalks_features:
+            world_pts.append([transformer.transform_point(p) for p in stalk])
 
         # Find the ground plane
         plane = cls.ransac_ground_plane(pointcloud, transformer)
 
-        # Find the point closest to 2" from the ground plane
+        # Find the point closest to 2" from the ground plane for each stalk
+        # NOTE: This relies on the ground plane being horizontal. For non-horizontal, use point to plane distance
         goal_height = -plane[3] + 2
-        return min(world_pts, key=lambda pt: abs(pt[2] - goal_height))
+        grasp_points = []
+        for stalk in world_pts:
+            best_point = min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height))
+            distance_to_ground = best_point[2] - (-plane[3])
+            grasp_points.append([best_point, distance_to_ground])
+
+        return grasp_points
 
     @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
@@ -234,15 +248,37 @@ class DetectNode:
 
             cls.image_index += 1
             masks = cls.run_detection(image, depth_image)
-            stalk_features = cls.get_stalk_features(masks)
+            stalks_features = cls.get_stalks_features(masks)
 
-            # For option 1, take the point 1-3" from the mask bottom
-            grasp_point = cls.get_grasp_point_by_mask(stalk_features, masks[0], transformer)
-            positions.append(grasp_point)
+            # region Grasp Point Finding
+            # # For option 1, take the point 1-3" from the mask bottom
+            # grasp_points = cls.get_grasp_points_by_mask(stalk_features, masks[0], transformer)
+
+            # Add the depths to the stalk features
+            for stalk in stalks_features:
+                for i in range(len(stalk)):
+                    stalk[i] = np.append(stalk[i], depth_image[stalk[i][1], stalk[i][0]]) / DEPTH_SCALE
 
             # For option 2, RANSAC the ground plane, then take the point 1-3" from the ground plane
             pointcloud = cls.get_pcl(image, depth_image, transformer)
-            grasp_point = cls.get_grasp_point_by_ransac(stalk_features, pointcloud, transformer)
+            grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
+            # endregion
+
+            # region Best Stalk Determination
+            # Option 1: Find the largest mask
+            largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
+            grasp_point = grasp_points[masks.index(largest_mask)][0]
+
+            # Option 2.1: Take the largest mask whose grasp point is 1-3" from the ground plane
+            valid_grasp_points = [g for g in grasp_points if g[1] <= 3 and g[1] >= 1]
+            valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
+            largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
+            grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
+
+            # Option 2.2: Combine the point clouds, RANSAC the ground plane, re-test point
+
+            # endregion
+
             positions.append(grasp_point)
 
             frame_count += 1
