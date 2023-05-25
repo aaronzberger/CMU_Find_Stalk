@@ -173,7 +173,7 @@ class DetectNode:
             grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height)))
 
         return grasp_points
-    
+
     @classmethod
     def project_features_to_base(cls, stalks_features, transformer):
         '''
@@ -186,7 +186,27 @@ class DetectNode:
         Returns
             projected_features (np.ndarray): The projected features
         '''
-        pass
+        world_pts = []
+        for stalk in stalks_features:
+            world_pts.append([transformer.transform_point(p) for p in stalk])
+
+        # Assume the ground plane is at z=0, so add points going in the same line as the stalk to the ground
+        projected_features = []
+        for stalk in world_pts:
+            # Find the median height distance between consecutive points
+            median_height_diff = np.median([stalk[i][2] - stalk[i - 1][2] for i in range(1, len(stalk))])
+
+            # Calculate the center of the points
+            center = np.mean(stalk, axis=0)
+
+            # Fit a line to the 3D points
+            _, _, vv = np.linalg.svd(stalk - center)
+
+            # Add points going down to the ground
+            for height in np.linspace(min([p[2] for p in stalk]), 0, median_height_diff):
+                projected_features.append(center + vv[2] * height)
+
+        return projected_features
 
     @classmethod
     def ransac_ground_plane(cls, pointcloud):
