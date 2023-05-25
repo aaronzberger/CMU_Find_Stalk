@@ -9,6 +9,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from std_msgs.msg import Header
 import ros_numpy
 from termcolor import colored
+from std_msgs.msg import ColorRGBA
 
 
 # The data structure of each point in ros PointCloud2: 16 bits = x + y + z + rgb
@@ -34,7 +35,7 @@ class Visualizer:
         cls.ids = []
 
     @classmethod
-    def _point_to_marker(cls, point: Point) -> Marker:
+    def _point_to_marker(cls, point: Point, color) -> Marker:
         '''
         Convert a point to a marker
 
@@ -45,7 +46,8 @@ class Visualizer:
             visualization_msgs.msg.Marker: the marker
         '''
         return Marker(pose=Pose(position=point), duration=rospy.Duration(0), type=Marker.SPHERE,
-                      scale=Point(x=0.05, y=0.05, z=0.05), color=Marker(color=Point(r=1, g=0, b=0, a=1)))
+                      scale=Point(x=0.05, y=0.05, z=0.05),
+                      color=ColorRGBA(r=color[0] / 255., g=color[1] / 255., b=color[2] / 255., a=1.))
 
     @classmethod
     def _o3d_to_pcl_ros(cls, o3d_pcl: o3d.geometry.PointCloud) -> PointCloud2:
@@ -87,7 +89,7 @@ class Visualizer:
         return pc2.create_cloud(header, fields, cloud_data)
 
     @classmethod
-    def publish_item(cls, id, item, delete_old_markers=True):
+    def publish_item(cls, id, item, delete_old_markers=True, marker_color=(255, 0, 0)):
         '''
         Publish an item to the visualization topic
 
@@ -120,17 +122,17 @@ class Visualizer:
                 # Delete all old markers
                 cls.publishers[cls.ids.index(id)].publish(Marker(action=Marker.DELETEALL))
 
-            msg = cls._point_to_marker(item)
+            msg = cls._point_to_marker(item, marker_color)
 
         elif isinstance(item, list) and isinstance(item[0], Point):
             if delete_old_markers:
                 # Delete all old markers
                 cls.publishers[cls.ids.index(id)].publish(Marker(action=Marker.DELETEALL))
 
-            msg = MarkerArray(markers=[cls._point_to_marker(i) for i in item])
+            msg = MarkerArray(markers=[cls._point_to_marker(i, marker_color) for i in item])
 
         elif isinstance(item, o3d.geometry.PointCloud):
-            msg = cls._o3d_to_pcl_ros(item)
+            msg = cls._o3d_to_pcl_ros(item, marker_color)
 
         else:
             print(colored('Invalid visualization type {} when trying to publish with id {}'.format(

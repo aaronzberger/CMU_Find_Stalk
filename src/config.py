@@ -27,6 +27,8 @@ MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
 SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 
+VISUALIZE = True
+
 # Select the algorithms to use
 GRASP_POINT_ALGO = GraspPointFindingOptions.mask_projection
 BEST_STALK_ALGO = BestStalkOptions.largest_favorable

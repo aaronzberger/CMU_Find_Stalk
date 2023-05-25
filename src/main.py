@@ -18,10 +18,12 @@ from sklearn.cluster import DBSCAN
 from termcolor import colored
 
 from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TRUNC,
-                    GRASP_POINT_ALGO, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS)
+                    GRASP_POINT_ALGO, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
+                    VISUALIZE)
 from model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from transforms import Transformer
+from visualize import Visualizer
 
 
 class DetectNode:
@@ -29,6 +31,8 @@ class DetectNode:
     def __init__(cls):
         cls.model = MaskRCNN()
         cls.cv_bridge = CvBridge()
+
+        cls.visualizer = Visualizer()
 
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
 
@@ -326,6 +330,9 @@ class DetectNode:
             # Run the model
             masks = cls.run_detection(image, depth_image)
 
+            if VISUALIZE:
+                cls.visualizer.publish_item('masks', cls.model.visualize(image, masks))
+
             # region Grasp Point Finding
             stalks_features = cls.get_stalks_features(masks)
 
@@ -343,7 +350,17 @@ class DetectNode:
                         stalk[i] = np.append(stalk[i], depth_image[stalk[i][1], stalk[i][0]]) / DEPTH_SCALE
 
                 pointcloud = cls.get_pcl(image, depth_image, transformer)
+
+                if VISUALIZE:
+                    cls.visualizer.publish_item('pointcloud', pointcloud)
+
                 grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
+
+            if VISUALIZE:
+                cls.visualizer.publish_item('features', cls.visualizer.publish_item(
+                    'features', stalks_features, marker_color=(255, 0, 0)))
+                cls.visualizer.publish_item('grasp_points', cls.visualizer.publish_item(
+                    'grasp_points', grasp_points, delete_old_markers=False, marker_color=(0, 255, 0)))
             # endregion
 
             # region Best Stalk Determination
