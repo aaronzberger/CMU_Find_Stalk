@@ -6,3 +6,7 @@ plugins
 user_trunk.yaml
 user.yaml
 shims
+.trunk/*
+.vscode/*
+**/__pycache__
+viz/*

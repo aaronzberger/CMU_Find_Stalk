@@ -23,7 +23,7 @@ INLIER_THRESHOLD = 0.05
 MAX_RANSAC_ITERATIONS = 1000
 
 # Model parameters
-MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
+MODEL_PATH = '~/catkin_ws/src/stalk_detect/model_final.pth'
 SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 
