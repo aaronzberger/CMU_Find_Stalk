@@ -8,16 +8,17 @@ from sensor_msgs.msg import CameraInfo
 
 class Transformer():
     '''
-    Helper class for transformations at a specific time
+    Helper class for storing the camera to base transformations at a specfic time
     '''
     def __init__(self):
-        # Get the transformation from cam to robot
+        # Get the transformation from camera to base
         tf_buffer = tf2_ros.Buffer()
         tf2_ros.TransformListener(tf_buffer)
 
         trans = tf_buffer.lookup_transform('cam_link', 'base_link', rospy.Time(0), rospy.Duration(1))
         self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(trans.transform))
 
+        # Get the camera intrinsics
         camera_info = rospy.wait_for_message('device_0/sensor_0/Color_0/info/camera_info', CameraInfo)
         depth_info = rospy.wait_for_message('device_0/sensor_0/Depth_0/info/camera_info', CameraInfo)
         self.intrinsic = np.array(camera_info.K).reshape((3, 3))
@@ -27,7 +28,7 @@ class Transformer():
 
     def transform_point(self, pt: Point) -> Point:
         '''
-        Transform a point from the camera frame to the robot frame.
+        Transform a point from the camera frame to the robot frame for this transform
 
         Parameters
             pt (geometry_msgs.msg.Point): The point to transform
@@ -35,7 +36,7 @@ class Transformer():
         Returns
             geometry_msgs.msg.Point: The transformed point
         '''
-        # Normalize the stalk
+        # Normalize the point
         x = (pt.x - self.intrinsic[0, 2]) / self.intrinsic[0, 0]
         y = (pt.y - self.intrinsic[1, 2]) / self.intrinsic[1, 1]
 

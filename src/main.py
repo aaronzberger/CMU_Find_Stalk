@@ -7,35 +7,35 @@ import math
 import cv2 as cv
 import message_filters
 import numpy as np
+import open3d as o3d
+import pyransac3d as pyrsc
 import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point
 from message_filters import ApproximateTimeSynchronizer
 from sensor_msgs.msg import Image
 from sklearn.cluster import DBSCAN
+from termcolor import colored
 
-from model import Mask_R_CNN
+from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TRUNC,
+                    GRASP_POINT_ALGO, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS)
+from model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from transforms import Transformer
-import open3d as o3d
-import pyransac3d as pyrsc
-
-
-DEPTH_SCALE = 1000.0
-DEPTH_TRUNC = 10
-INLIER_THRESHOLD = 0.05
-MAX_RANSAC_ITERATIONS = 1000
 
 
 class DetectNode:
     @classmethod
     def __init__(cls):
-        cls.model = Mask_R_CNN()
+        cls.model = MaskRCNN()
         cls.cv_bridge = CvBridge()
 
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
 
+        # Count the number of total service calls (for visualization, etc)
         cls.call_index = -1
+
+        # Count the number of images processed in the current service call
         cls.image_index = -1
 
     @classmethod
@@ -151,13 +151,12 @@ class DetectNode:
         return pcd
 
     @classmethod
-    def get_grasp_points_by_mask(cls, stalks_features, mask, transformer):
+    def get_grasp_pts_by_features(cls, stalks_features, transformer):
         '''
-        Find a point closest to 1-3" from the bottom of the mask
+        Find a point closest to 1-3" from the bottom of the feature points
 
         Parameters
             stalk_features (np.ndarray): The center points of the stalks
-            mask (np.ndarray): The mask of the detected stalk
             transformer (Transformer): The transformer
 
         Returns
@@ -174,6 +173,20 @@ class DetectNode:
             grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height)))
 
         return grasp_points
+    
+    @classmethod
+    def project_features_to_base(cls, stalks_features, transformer):
+        '''
+        Project the stalk features to the ground plane (using the robot base transform)
+
+        Parameters
+            stalk_features (np.ndarray): The center points of the stalks
+            transformer (Transformer): The transformer
+
+        Returns
+            projected_features (np.ndarray): The projected features
+        '''
+        pass
 
     @classmethod
     def ransac_ground_plane(cls, pointcloud):
@@ -235,9 +248,9 @@ class DetectNode:
         return grasp_points
 
     @classmethod
-    def combine_pointclouds(cls, pointclouds):
+    def combine_pointclouds(cls, pointclouds, transformers):
         '''
-        Combine multiple point clouds into one using ICP
+        Combine multiple point clouds into one using ICP and the given transformations
 
         Parameters
             pointclouds (list[o3d.geometry.PointCloud]): The point clouds
@@ -245,24 +258,36 @@ class DetectNode:
         Returns
             pointcloud (o3d.geometry.PointCloud): The combined point cloud
         '''
-        # # If ICP is needed
-        # transformations = []
-        # trans_init = np.eye(4)
-        # for pcl in pointclouds[1:]:
-        #     result = o3d.pipelines.registration.registration_icp(
-        #         pcl, pointclouds[0], 0.05, trans_init,
-        #         o3d.pipelines.registration.TransformationEstimationPointToPlane())
-        #     transformations.append(result.transformation)
+        # If ICP is needed
+        transformations = []
+        for pcl, transformer in zip(pointclouds[1:], transformers[1:]):
+            # Find the predicted transformations between pcl and the first pointcloud
+            trans_init = transformer.E @ np.linalg.inv(transformers[0].E)
+
+            result = o3d.pipelines.registration.registration_icp(
+                pcl, pointclouds[0], 0.05, trans_init,
+                o3d.pipelines.registration.TransformationEstimationPointToPlane())
+            transformations.append(result.transformation)
 
         # Combine the point clouds
         pointcloud = pointclouds[0]
         for pcl in pointclouds[1:]:
-            # # Transform the pointcloud to the frame of the first one if ICP is being used
-            # pcl.transform(transformations.pop())
+            # Transform the pointcloud to the frame of the first one if ICP is being used
+            pcl.transform(transformations.pop())
             pointcloud.points.extend(pcl.points)
 
     @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
+        '''
+        Process a request to find the best stalk to grab
+
+        Parameters
+            req (GetStalkRequest): The request, with a number of frames to process and a timeout
+
+        Returns
+            GetStalkResponse: The response, with a message, the best stalk found, and # frames processed
+        '''
+        print('Received a request for {} frames with timeout {} seconds'.format(req.num_frames, req.timeout))
         cls.call_index += 1
         cls.image_index = -1
         start = rospy.get_rostime()
@@ -270,55 +295,65 @@ class DetectNode:
         positions = []
         all_masks = []
         pcls = []
+        transformers = []
 
         def image_depth_callback(image, depth_image):
-            nonlocal frame_count, positions, all_masks, pcls
+            nonlocal frame_count, positions, all_masks, pcls, transformers
 
             transformer = Transformer()
-
             cls.image_index += 1
+
+            # Run the model
             masks = cls.run_detection(image, depth_image)
-            stalks_features = cls.get_stalks_features(masks)
 
             # region Grasp Point Finding
-            # # For option 1, take the point 1-3" from the mask bottom
-            # grasp_points = cls.get_grasp_points_by_mask(stalk_features, masks[0], transformer)
+            stalks_features = cls.get_stalks_features(masks)
 
-            # Add the depths to the stalk features
-            for stalk in stalks_features:
-                for i in range(len(stalk)):
-                    stalk[i] = np.append(stalk[i], depth_image[stalk[i][1], stalk[i][0]]) / DEPTH_SCALE
+            if GRASP_POINT_ALGO == 'mask-only':
+                grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
 
-            # For option 2, RANSAC the ground plane, then take the point 1-3" from the ground plane
-            pointcloud = cls.get_pcl(image, depth_image, transformer)
-            grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
+            elif GRASP_POINT_ALGO == 'mask_projection':
+                stalks_features = cls.project_features_to_base(stalks_features, transformer)
+                grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
+
+            elif GRASP_POINT_ALGO == 'ransac_ground_plane':
+                # Add the depths to the stalk features
+                for stalk in stalks_features:
+                    for i in range(len(stalk)):
+                        stalk[i] = np.append(stalk[i], depth_image[stalk[i][1], stalk[i][0]]) / DEPTH_SCALE
+
+                pointcloud = cls.get_pcl(image, depth_image, transformer)
+                grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
             # endregion
 
             # region Best Stalk Determination
-            # # Option 1: Find the largest mask
-            # largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
-            # grasp_point = grasp_points[masks.index(largest_mask)][0]
-            # corresponding_mask = largest_mask
+            if BEST_STALK_ALGO == 'largest':
+                largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
+                grasp_point = grasp_points[masks.index(largest_mask)][0]
+                corresponding_mask = largest_mask
 
-            # Option 2.1: Take the largest mask whose grasp point is 1-3" from the ground plane
-            valid_grasp_points = [g for g in grasp_points if g[1] <= 3 and g[1] >= 1]
-            valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
-            largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
-            grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
-            corresponding_mask = largest_valid_mask
+            elif BEST_STALK_ALGO == 'largest_favorable':
+                valid_grasp_points = [g for g in grasp_points if g[1] <= 3 and g[1] >= 1]
+                valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
+                largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
+                grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
+                corresponding_mask = largest_valid_mask
 
-            # Option 2.2: Add all masks, and run 2.1 on the fused pointclouds
-            # positions += grasp_points
-            # all_masks += masks
-            # pcls.append(pointcloud)
+            elif BEST_STALK_ALGO == 'combine_pcls':
+                positions += grasp_points
+                all_masks += masks
+                pcls.append(pointcloud)
+                transformers.append(transformer)
+
+            if BEST_STALK_ALGO in ['largest', 'largest_favorable']:
+                positions.append(grasp_point)
+                all_masks.append(corresponding_mask)
+                pcls.append(pointcloud)
             # endregion
-
-            positions.append(grasp_point)
-            all_masks.append(corresponding_mask)
-            pcls.append(pointcloud)
 
             frame_count += 1
 
+        # Setup the callback for the images and depth images
         cls.sub_images = message_filters.Subscriber(
             '/device_0/sensor_0/Color_0/image/data', Image)
         cls.sub_depth = message_filters.Subscriber(
@@ -327,7 +362,7 @@ class DetectNode:
             [cls.sub_images, cls.sub_depth], queue_size=20, slop=0.2)
         ts.registerCallback(image_depth_callback)
 
-        # Wait until enough frames have been gathered, or the timeout has been reached
+        # Continue until enough frames have been gathered, or the timeout has been reached
         while frame_count <= req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
             rospy.sleep(0.1)
 
@@ -337,23 +372,30 @@ class DetectNode:
             return GetStalkResponse()
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions
-        best_stalk = cls.determine_best_stalk(positions)
+        if BEST_STALK_ALGO in ['largest', 'largest_favorable']:
+            best_stalk = cls.determine_best_stalk(positions)
 
-        # Option 2.2: Combine point clouds, RANSAC the ground plane, and re-test the points
-        # single_pcl = cls.combine_pointclouds(pcls)
-        # grasp_points = cls.get_grasp_points_by_ransac(positions, single_pcl, transformer)
-        # ...
+        elif BEST_STALK_ALGO == 'combine_pcls':
+            # Combine point clouds with the first one
+            single_pcl = cls.combine_pointclouds(pcls, transformers)
 
-        rospy.loginfo('Found stalk at (%f, %f, %f)', best_stalk.x, best_stalk.y, best_stalk.z)
+            # Find the grasp points for this point cloud, which is in the frame of the first point cloud
+            grasp_points = cls.get_grasp_points_by_ransac(positions, single_pcl, transformers[0])
+
+            best_stalk = cls.determine_best_stalk(grasp_points)
+
+        print(colored('Found stalk at robot frame ({}, {}, {})'.format(
+            best_stalk.x, best_stalk.y, best_stalk.z), 'green'))
 
         return GetStalkResponse(success='Done', position=best_stalk, num_frames=cls.image_index)
 
 
 if __name__ == '__main__':
-    rospy.init_node('detect', log_level=rospy.INFO)
+    print('Starting stalk_detect node.\n\tUsing grasp point algorithm: {}\n\tUsing best stalk algorithm: {}'.format(
+        GRASP_POINT_ALGO.name, BEST_STALK_ALGO.name))
 
     detect_node = DetectNode()
 
-    rospy.loginfo('started detect node')
+    print(colored('Loaded model. Waiting for service calls...', 'green'))
 
     rospy.spin()

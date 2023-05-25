@@ -1,7 +1,7 @@
 uint32 num_frames
 float64 timeout
 ---
-bool success
+string success
 geometry_msgs/Point position
 geometry_msgs/Point margins
 float64 confidence

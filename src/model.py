@@ -4,12 +4,10 @@ from detectron2.data.catalog import MetadataCatalog
 from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import ColorMode, Visualizer
 
-MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
-SCORE_THRESHOLD = 0.6
-CUDA_DEVICE_NO = 0
+from config import CUDA_DEVICE_NO, MODEL_PATH, SCORE_THRESHOLD
 
 
-class Mask_R_CNN:
+class MaskRCNN:
     def __init__(self):
         self.model_cfg = get_cfg()
         self.model_cfg.merge_from_file(
@@ -17,7 +15,7 @@ class Mask_R_CNN:
         )
         self.model_cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = SCORE_THRESHOLD
         self.model_cfg.MODEL.WEIGHTS = MODEL_PATH
-        self.model_cfg.MODEL.ROI_HEADS.NUM_CLASSES = 2  # background, trunk
+        self.model_cfg.MODEL.ROI_HEADS.NUM_CLASSES = 2  # background, stalk
         self.model_cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST = 0.1
         self.model_cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = (128)
         self.model_cfg.MODEL.DEVICE = 'cuda:{}'.format(CUDA_DEVICE_NO) if CUDA_DEVICE_NO >= 0 else 'cpu'
