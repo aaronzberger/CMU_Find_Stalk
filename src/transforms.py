@@ -2,8 +2,10 @@ import numpy as np
 import rospy
 import tf2_ros
 import tf_conversions
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Pose, Pose2D
 from sensor_msgs.msg import CameraInfo
+
+from config import BASE_FRAME, CAMERA_FRAME, CAMERA_INFO, DEPTH_CAMERA_INFO
 
 
 class Transformer():
@@ -15,12 +17,18 @@ class Transformer():
         tf_buffer = tf2_ros.Buffer()
         tf2_ros.TransformListener(tf_buffer)
 
-        trans = tf_buffer.lookup_transform('cam_link', 'base_link', rospy.Time(0), rospy.Duration(1))
-        self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(trans.transform))
+        trans = tf_buffer.lookup_transform(CAMERA_FRAME, BASE_FRAME, rospy.Time(0), rospy.Duration(1))
+
+        # Convert the Transform msg to a Pose msg
+        pose = Pose(position=Point(
+                        x=trans.transform.translation.x, y=trans.transform.translation.y, z=trans.transform.translation.z),
+                    orientation=trans.transform.rotation)
+
+        self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
 
         # Get the camera intrinsics
-        camera_info = rospy.wait_for_message('device_0/sensor_0/Color_0/info/camera_info', CameraInfo)
-        depth_info = rospy.wait_for_message('device_0/sensor_0/Depth_0/info/camera_info', CameraInfo)
+        camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo)
+        depth_info = rospy.wait_for_message(DEPTH_CAMERA_INFO, CameraInfo)
         self.intrinsic = np.array(camera_info.K).reshape((3, 3))
         self.depth_intrinsic = np.array(depth_info.K).reshape((3, 3))
 

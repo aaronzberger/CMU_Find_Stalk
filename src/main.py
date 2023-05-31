@@ -3,6 +3,7 @@
 # -*- encoding: utf-8 -*-
 
 import math
+from typing import Optional
 
 import cv2 as cv
 import message_filters
@@ -11,7 +12,7 @@ import open3d as o3d
 import pyransac3d as pyrsc
 import rospy
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Point
+from geometry_msgs.msg import Point, Pose2D
 from message_filters import ApproximateTimeSynchronizer
 from sensor_msgs.msg import Image
 from sklearn.cluster import DBSCAN
@@ -19,7 +20,7 @@ from termcolor import colored
 
 from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TRUNC,
                     GRASP_POINT_ALGO, INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
-                    VISUALIZE)
+                    VISUALIZE, IMAGE_TOPIC, DEPTH_TOPIC, GraspPointFindingOptions, BestStalkOptions)
 from model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from transforms import Transformer
@@ -43,12 +44,13 @@ class DetectNode:
         cls.image_index = -1
 
     @classmethod
-    def run_detection(cls, image) -> np.ndarray:
+    def run_detection(cls, image, visualize: bool) -> np.ndarray:
         '''
         Run the Mask R-CNN model on the given image
 
         Parameters
             image (sensor_msgs.msg.Image): The image to run the model on
+            visualize (bool): Whether to visualize the results
 
         Returns
             masks (np.ndarray): The masks of the detected stalks
@@ -60,9 +62,10 @@ class DetectNode:
         scores, bboxes, masks, output = cls.model.forward(cv_image)
         masks = masks.astype(np.uint8) * 255
 
-        # Save the image
-        visualized = cls.model.visualize(cv_image, output)
-        cv.imwrite(f'viz/{cls.call_index}-{cls.image_index}.jpg', visualized)
+        if visualize:
+            # Save the image
+            visualized = cls.model.visualize(cv_image, output)
+            cls.visualizer.publish_item('masks', visualized)
 
         return masks
 
@@ -75,7 +78,7 @@ class DetectNode:
             masks (np.ndarray): The masks of the detected stalks
 
         Returns
-            stalks_features (list[np.ndarray]): The center points of the stalks, for each stalk
+            stalks_features (list[np.ndarray[Pose2D]]): The center points of the stalks, for each stalk
         '''
         # Get the center points of the stalks
         stalks_features = []
@@ -83,17 +86,18 @@ class DetectNode:
             # Get the top and bottom height values of the stalk
             bottom_y, top_y = np.nonzero(mask)[1].min(), np.nonzero(mask)[1].max()
 
-            stalk_features = np.array([np.nonzero(mask[:, bottom_y])[0].mean(), bottom_y])
+            stalk_features = [Pose2D(x=np.nonzero(mask[:, bottom_y])[0].mean(), y=bottom_y)]
 
             # For every 10 pixels, get the center point
             for y in range(bottom_y, top_y, 10):
                 # Find the average x value for nonzero pixels at this y value
-                stalk_features = np.vstack((stalk_features, np.array([np.nonzero(mask[:, y])[0].mean(), y])))
+                stalk_features.append(Pose2D(x=np.nonzero(mask[:, y])[0].mean(), y=y))
 
-            stalk_features = np.vstack((stalk_features, np.array([np.nonzero(mask[:, top_y])[0].mean(), top_y])))
-            stalks_features.append(stalk_features)
+            stalk_features.append(Pose2D(x=np.nonzero(mask[:, top_y])[0].mean(), y=top_y))
 
-        return np.array(stalks_features)
+            stalks_features.append(np.array(stalk_features))
+
+        return stalks_features
 
     @classmethod
     def determine_best_stalk(cls, positions) -> Point:
@@ -155,12 +159,12 @@ class DetectNode:
         return pcd
 
     @classmethod
-    def get_grasp_pts_by_features(cls, stalks_features, transformer):
+    def get_grasp_pts_by_features(cls, stalks_features, transformer: Optional[Transformer] = None):
         '''
         Find a point closest to 1-3" from the bottom of the feature points
 
         Parameters
-            stalk_features (np.ndarray): The center points of the stalks
+            stalk_features (list[np.ndarray[Point]]): The center points of the stalks
             transformer (Transformer): The transformer
 
         Returns
@@ -168,13 +172,16 @@ class DetectNode:
         '''
         world_pts = []
         for stalk in stalks_features:
-            world_pts.append([transformer.transform_point(p) for p in stalk])
+            if transformer is not None:
+                world_pts.append([transformer.transform_point(p) for p in stalk])
+            else:
+                world_pts.append(stalk)
 
         # Find the point closest to 2" from the bottom of the stalk
         grasp_points = []
         for stalk in world_pts:
-            goal_height = stalk[0][2] + 2
-            grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height)))
+            goal_height = stalk[0].z + 2
+            grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt.z - goal_height)))
 
         return grasp_points
 
@@ -184,31 +191,45 @@ class DetectNode:
         Project the stalk features to the ground plane (using the robot base transform)
 
         Parameters
-            stalk_features (np.ndarray): The center points of the stalks
+            stalk_features (list[np.ndarray[Point]]): The center points of the stalks
             transformer (Transformer): The transformer
 
         Returns
-            projected_features (np.ndarray): The projected features
+            projected_features (list[np.ndarray[Point]]): The projected features
         '''
         world_pts = []
         for stalk in stalks_features:
-            world_pts.append([transformer.transform_point(p) for p in stalk])
+            world_pts.append(np.array([transformer.transform_point(p) for p in stalk]))
 
         # Assume the ground plane is at z=0, so add points going in the same line as the stalk to the ground
         projected_features = []
-        for stalk in world_pts:
+        for i, stalk in enumerate(world_pts):
+            single_features = world_pts[i]
             # Find the median height distance between consecutive points
-            median_height_diff = np.median([stalk[i][2] - stalk[i - 1][2] for i in range(1, len(stalk))])
+            median_height_diff = np.median([stalk[i].z - stalk[i - 1].z for i in range(1, len(stalk))])
+            min_height = min([p.z for p in stalk])
+
+            array_stalk = np.array(np.array([[p.x, p.y, p.z] for p in stalk]))
 
             # Calculate the center of the points
-            center = np.mean(stalk, axis=0)
+            center = np.mean(array_stalk, axis=0)
 
             # Fit a line to the 3D points
-            _, _, vv = np.linalg.svd(stalk - center)
+            _, _, vv = np.linalg.svd(array_stalk - center)
 
             # Add points going down to the ground
-            for height in np.linspace(min([p[2] for p in stalk]), 0, median_height_diff):
-                projected_features.append(center + vv[2] * height)
+            try:
+                num_points = int(abs(min_height) / median_height_diff)
+            except ZeroDivisionError:
+                return None
+
+            for height in np.linspace(min_height, 0, num_points):
+                single_features = np.append(single_features, [Point(x=center[0] + vv[0][0] * height,
+                                                                    y=center[1] + vv[0][1] * height,
+                                                                    z=center[2] + vv[0][2] * height)], axis=0)
+                # center + vv[2] * height  # This is what was recommended, but above is copilot's version
+
+            projected_features.append(single_features)
 
         return projected_features
 
@@ -245,7 +266,7 @@ class DetectNode:
         Find a point closest to 1-3" from the ground plane for each stalk
 
         Parameters
-            stalks_features (list[np.ndarray]): The center points of the stalks
+            stalks_features (list[np.ndarray[Point]]): The center points of the stalks
             pointcloud (o3d.geometry.PointCloud): The point cloud
             transformer (Transformer): The transformer
 
@@ -265,8 +286,8 @@ class DetectNode:
         goal_height = -plane[3] + 2
         grasp_points = []
         for stalk in world_pts:
-            best_point = min(stalk, key=lambda pt, goal_height=goal_height: abs(pt[2] - goal_height))
-            distance_to_ground = best_point[2] - (-plane[3])
+            best_point = min(stalk, key=lambda pt, goal_height=goal_height: abs(pt.z - goal_height))
+            distance_to_ground = best_point.z - (-plane[3])
             grasp_points.append([best_point, distance_to_ground])
 
         return grasp_points
@@ -324,31 +345,41 @@ class DetectNode:
         def image_depth_callback(image, depth_image):
             nonlocal frame_count, positions, all_masks, pcls, transformers
 
+            print('Processing frame {}'.format(frame_count))
+
             transformer = Transformer()
             cls.image_index += 1
 
             # Run the model
-            masks = cls.run_detection(image, depth_image)
+            masks = cls.run_detection(image, VISUALIZE)
 
-            if VISUALIZE:
-                cls.visualizer.publish_item('masks', cls.model.visualize(image, masks))
+            print('Found {} stalks'.format(len(masks)))
 
             # region Grasp Point Finding
             stalks_features = cls.get_stalks_features(masks)
 
-            if GRASP_POINT_ALGO == 'mask-only':
+            depth_image_cv = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
+
+            # Add the depths to the stalk features
+            for i, stalk in enumerate(stalks_features):
+                for j in range(len(stalk)):
+                    stalks_features[i][j] = Point(x=stalk[j].x, y=stalk[j].y,
+                                                  z=depth_image_cv[int(stalk[j].y)][int(stalk[j].x)] / DEPTH_SCALE)
+
+            if GRASP_POINT_ALGO == GraspPointFindingOptions.mask_only:
                 grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
 
-            elif GRASP_POINT_ALGO == 'mask_projection':
+            elif GRASP_POINT_ALGO == GraspPointFindingOptions.mask_projection:
                 stalks_features = cls.project_features_to_base(stalks_features, transformer)
-                grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
 
-            elif GRASP_POINT_ALGO == 'ransac_ground_plane':
-                # Add the depths to the stalk features
-                for stalk in stalks_features:
-                    for i in range(len(stalk)):
-                        stalk[i] = np.append(stalk[i], depth_image[stalk[i][1], stalk[i][0]]) / DEPTH_SCALE
+                if stalks_features is None:
+                    rospy.logwarn('Error projecting the features to base')
+                    frame_count += 1
+                    return
 
+                grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer=None)
+
+            elif GRASP_POINT_ALGO == GraspPointFindingOptions.ransac_ground_plane:
                 pointcloud = cls.get_pcl(image, depth_image, transformer)
 
                 if VISUALIZE:
@@ -364,25 +395,31 @@ class DetectNode:
             # endregion
 
             # region Best Stalk Determination
-            if BEST_STALK_ALGO == 'largest':
+            if BEST_STALK_ALGO == BestStalkOptions.largest:
                 largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
                 grasp_point = grasp_points[masks.index(largest_mask)][0]
                 corresponding_mask = largest_mask
 
-            elif BEST_STALK_ALGO == 'largest_favorable':
-                valid_grasp_points = [g for g in grasp_points if g[1] <= 3 and g[1] >= 1]
+            elif BEST_STALK_ALGO == BestStalkOptions.largest_favorable:
+                valid_grasp_points = [g for g in grasp_points if g.z <= 3 and g.z >= 1]
                 valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
+
+                if len(valid_masks) == 0:
+                    rospy.logwarn('No stalks detected')
+                    frame_count += 1
+                    return
+
                 largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
                 grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
                 corresponding_mask = largest_valid_mask
 
-            elif BEST_STALK_ALGO == 'combine_pcls':
+            elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
                 positions += grasp_points
                 all_masks += masks
                 pcls.append(pointcloud)
                 transformers.append(transformer)
 
-            if BEST_STALK_ALGO in ['largest', 'largest_favorable']:
+            if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
                 positions.append(grasp_point)
                 all_masks.append(corresponding_mask)
                 pcls.append(pointcloud)
@@ -391,10 +428,8 @@ class DetectNode:
             frame_count += 1
 
         # Setup the callback for the images and depth images
-        cls.sub_images = message_filters.Subscriber(
-            '/device_0/sensor_0/Color_0/image/data', Image)
-        cls.sub_depth = message_filters.Subscriber(
-            '/device_0/sensor_0/Depth_0/image/data', Image)
+        cls.sub_images = message_filters.Subscriber(IMAGE_TOPIC, Image)
+        cls.sub_depth = message_filters.Subscriber(DEPTH_TOPIC, Image)
         ts = ApproximateTimeSynchronizer(
             [cls.sub_images, cls.sub_depth], queue_size=20, slop=0.2)
         ts.registerCallback(image_depth_callback)
@@ -409,10 +444,10 @@ class DetectNode:
             return GetStalkResponse()
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions
-        if BEST_STALK_ALGO in ['largest', 'largest_favorable']:
+        if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
             best_stalk = cls.determine_best_stalk(positions)
 
-        elif BEST_STALK_ALGO == 'combine_pcls':
+        elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
             # Combine point clouds with the first one
             single_pcl = cls.combine_pointclouds(pcls, transformers)
 
@@ -430,6 +465,8 @@ class DetectNode:
 if __name__ == '__main__':
     print('Starting stalk_detect node.\n\tUsing grasp point algorithm: {}\n\tUsing best stalk algorithm: {}'.format(
         GRASP_POINT_ALGO.name, BEST_STALK_ALGO.name))
+
+    rospy.init_node('stalk_detect')
 
     detect_node = DetectNode()
 
