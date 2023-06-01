@@ -23,7 +23,7 @@ from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TRUNC,
                     VISUALIZE, IMAGE_TOPIC, DEPTH_TOPIC, GraspPointFindingOptions, BestStalkOptions)
 from model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
-from transforms import Transformer
+from transforms import Transformer, TfBuffer
 from visualize import Visualizer
 
 
@@ -34,6 +34,8 @@ class DetectNode:
         cls.cv_bridge = CvBridge()
 
         cls.visualizer = Visualizer()
+
+        cls.tf_buffer = TfBuffer()
 
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
 
@@ -347,7 +349,7 @@ class DetectNode:
 
             print('Processing frame {}'.format(frame_count))
 
-            transformer = Transformer()
+            transformer = Transformer(cls.tf_buffer.get_tf_buffer())
             cls.image_index += 1
 
             # Run the model
@@ -357,6 +359,8 @@ class DetectNode:
 
             # region Grasp Point Finding
             stalks_features = cls.get_stalks_features(masks)
+
+            print(len(stalks_features), [len(stalk) for stalk in stalks_features])
 
             depth_image_cv = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
 

@@ -2,22 +2,30 @@ import numpy as np
 import rospy
 import tf2_ros
 import tf_conversions
-from geometry_msgs.msg import Point, Pose, Pose2D
+from geometry_msgs.msg import Point, Pose
 from sensor_msgs.msg import CameraInfo
 
 from config import BASE_FRAME, CAMERA_FRAME, CAMERA_INFO, DEPTH_CAMERA_INFO
+
+
+class TfBuffer():
+    @classmethod
+    def __init__(cls):
+        cls.tf_buffer = tf2_ros.Buffer()
+        tf2_ros.TransformListener(cls.tf_buffer)
+
+    @classmethod
+    def get_tf_buffer(cls):
+        return cls.tf_buffer
 
 
 class Transformer():
     '''
     Helper class for storing the camera to base transformations at a specfic time
     '''
-    def __init__(self):
+    def __init__(self, tf_buffer: tf2_ros.Buffer):
         # Get the transformation from camera to base
-        tf_buffer = tf2_ros.Buffer()
-        tf2_ros.TransformListener(tf_buffer)
-
-        trans = tf_buffer.lookup_transform(CAMERA_FRAME, BASE_FRAME, rospy.Time(0), rospy.Duration(1))
+        trans = tf_buffer.lookup_transform(BASE_FRAME, CAMERA_FRAME, rospy.Time(0))
 
         # Convert the Transform msg to a Pose msg
         pose = Pose(position=Point(
