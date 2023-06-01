@@ -3,7 +3,6 @@
 # -*- encoding: utf-8 -*-
 
 import math
-from typing import Optional
 
 import cv2 as cv
 import message_filters
@@ -68,6 +67,8 @@ class DetectNode:
             # Save the image
             visualized = cls.model.visualize(cv_image, output)
             cls.visualizer.publish_item('masks', visualized)
+
+            cv.imwrite(f'/home/frc/catkin_ws/src/stalk_detect/viz/{cls.call_index}_{cls.image_index}.png', visualized)
 
         return masks
 
@@ -161,52 +162,57 @@ class DetectNode:
         return pcd
 
     @classmethod
-    def get_grasp_pts_by_features(cls, stalks_features, transformer: Optional[Transformer] = None):
+    def get_grasp_pts_by_features(cls, stalks_features):
         '''
         Find a point closest to 1-3" from the bottom of the feature points
 
         Parameters
             stalk_features (list[np.ndarray[Point]]): The center points of the stalks
-            transformer (Transformer): The transformer
 
         Returns
             grasp_point (geometry_msgs.msg.Point): The best grasp point found
         '''
-        world_pts = []
-        for stalk in stalks_features:
-            if transformer is not None:
-                world_pts.append([transformer.transform_point(p) for p in stalk])
-            else:
-                world_pts.append(stalk)
-
         # Find the point closest to 2" from the bottom of the stalk
         grasp_points = []
-        for stalk in world_pts:
+        for stalk in stalks_features:
             goal_height = stalk[0].z + 2
             grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt.z - goal_height)))
 
         return grasp_points
 
     @classmethod
-    def project_features_to_base(cls, stalks_features, transformer):
+    def transform_points(cls, stalks_features, transformer: Transformer):
         '''
-        Project the stalk features to the ground plane (using the robot base transform)
+        Transform the stalk features to the ground plane (using the robot base transform)
 
         Parameters
             stalk_features (list[np.ndarray[Point]]): The center points of the stalks
             transformer (Transformer): The transformer
 
         Returns
+            transformed_features (list[np.ndarray[Point]]): The transformed features
+        '''
+        transformed_features = []
+        for stalk in stalks_features:
+            transformed_features.append(np.array([transformer.transform_point(p) for p in stalk]))
+
+        return transformed_features
+
+    @classmethod
+    def project_features_to_base(cls, stalks_features):
+        '''
+        Project the stalk features to the ground plane (using the robot base transform)
+
+        Parameters
+            stalk_features (list[np.ndarray[Point]]): The center points of the stalks
+
+        Returns
             projected_features (list[np.ndarray[Point]]): The projected features
         '''
-        world_pts = []
-        for stalk in stalks_features:
-            world_pts.append(np.array([transformer.transform_point(p) for p in stalk]))
-
         # Assume the ground plane is at z=0, so add points going in the same line as the stalk to the ground
         projected_features = []
-        for i, stalk in enumerate(world_pts):
-            single_features = world_pts[i]
+        for i, stalk in enumerate(stalks_features):
+            single_features = stalks_features[i]
             # Find the median height distance between consecutive points
             median_height_diff = np.median([stalk[i].z - stalk[i - 1].z for i in range(1, len(stalk))])
             min_height = min([p.z for p in stalk])
@@ -263,23 +269,18 @@ class DetectNode:
         return best_eq
 
     @classmethod
-    def get_grasp_points_by_ransac(cls, stalks_features, pointcloud, transformer):
+    def get_grasp_points_by_ransac(cls, stalks_features, pointcloud):
         '''
         Find a point closest to 1-3" from the ground plane for each stalk
 
         Parameters
             stalks_features (list[np.ndarray[Point]]): The center points of the stalks
             pointcloud (o3d.geometry.PointCloud): The point cloud
-            transformer (Transformer): The transformer
 
         Returns
             grasp_points ([[geometry_msgs.msg.Point, distance_to_ground]]):
                 The best grasp points found for each stalk, and their distance to the ground plane
         '''
-        world_pts = []
-        for stalk in stalks_features:
-            world_pts.append([transformer.transform_point(p) for p in stalk])
-
         # Find the ground plane
         plane = cls.ransac_ground_plane(pointcloud)
 
@@ -287,7 +288,7 @@ class DetectNode:
         # NOTE: This relies on the ground plane being horizontal. For non-horizontal, use point to plane distance
         goal_height = -plane[3] + 2
         grasp_points = []
-        for stalk in world_pts:
+        for stalk in stalks_features:
             best_point = min(stalk, key=lambda pt, goal_height=goal_height: abs(pt.z - goal_height))
             distance_to_ground = best_point.z - (-plane[3])
             grasp_points.append([best_point, distance_to_ground])
@@ -355,8 +356,6 @@ class DetectNode:
             # Run the model
             masks = cls.run_detection(image, VISUALIZE)
 
-            print('Found {} stalks'.format(len(masks)))
-
             # region Grasp Point Finding
             stalks_features = cls.get_stalks_features(masks)
 
@@ -368,13 +367,24 @@ class DetectNode:
             for i, stalk in enumerate(stalks_features):
                 for j in range(len(stalk)):
                     stalks_features[i][j] = Point(x=stalk[j].x, y=stalk[j].y,
-                                                  z=depth_image_cv[int(stalk[j].y)][int(stalk[j].x)] / DEPTH_SCALE)
+                                                  z=depth_image_cv[int(stalk[j].x)][int(stalk[j].y)] / DEPTH_SCALE)
+
+            print('after adding depths', len(stalks_features), [len(stalk) for stalk in stalks_features])
+
+            # Transform the points
+            stalks_features = cls.transform_points(stalks_features, transformer)
+
+            if VISUALIZE:
+                cls.visualizer.publish_item('features', stalks_features, marker_color=(255, 0, 0), delete_old_markers=False)
+
+            frame_count += 1
+            return
 
             if GRASP_POINT_ALGO == GraspPointFindingOptions.mask_only:
                 grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
 
             elif GRASP_POINT_ALGO == GraspPointFindingOptions.mask_projection:
-                stalks_features = cls.project_features_to_base(stalks_features, transformer)
+                # stalks_features = cls.project_features_to_base(stalks_features, transformer)
 
                 if stalks_features is None:
                     rospy.logwarn('Error projecting the features to base')
@@ -391,11 +401,9 @@ class DetectNode:
 
                 grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
 
-            if VISUALIZE:
-                cls.visualizer.publish_item('features', cls.visualizer.publish_item(
-                    'features', stalks_features, marker_color=(255, 0, 0)))
-                cls.visualizer.publish_item('grasp_points', cls.visualizer.publish_item(
-                    'grasp_points', grasp_points, delete_old_markers=False, marker_color=(0, 255, 0)))
+            # if VISUALIZE:
+            #     cls.visualizer.publish_item('features', stalks_features, marker_color=(255, 0, 0))
+            #     cls.visualizer.publish_item('grasp_points', grasp_points, delete_old_markers=False, marker_color=(0, 255, 0))
             # endregion
 
             # region Best Stalk Determination
@@ -435,11 +443,12 @@ class DetectNode:
         cls.sub_images = message_filters.Subscriber(IMAGE_TOPIC, Image)
         cls.sub_depth = message_filters.Subscriber(DEPTH_TOPIC, Image)
         ts = ApproximateTimeSynchronizer(
-            [cls.sub_images, cls.sub_depth], queue_size=20, slop=0.2)
+            [cls.sub_images, cls.sub_depth], queue_size=5, slop=0.2)
         ts.registerCallback(image_depth_callback)
 
         # Continue until enough frames have been gathered, or the timeout has been reached
         while frame_count <= req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
+            print('Waiting for {} more frames'.format(req.num_frames - frame_count))
             rospy.sleep(0.1)
 
         #  Cluster the positions, find the best one, average it

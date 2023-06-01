@@ -41,7 +41,7 @@ class Visualizer:
         cls.counter = 0
 
     @classmethod
-    def _point_to_marker(cls, point: Point, color) -> Marker:
+    def _point_to_marker(cls, point: Point, color, id: int) -> Marker:
         '''
         Convert a point to a marker
 
@@ -51,9 +51,11 @@ class Visualizer:
         Returns
             visualization_msgs.msg.Marker: the marker
         '''
-        return Marker(pose=Pose(position=point), lifetime=rospy.Duration(0), type=Marker.SPHERE,
-                      scale=Point(x=0.05, y=0.05, z=0.05),
-                      color=ColorRGBA(r=color[0] / 255., g=color[1] / 255., b=color[2] / 255., a=1.))
+        header = Header(frame_id='link_base', stamp=rospy.Time.now())
+
+        return Marker(header=header, id=id, pose=Pose(position=point), lifetime=rospy.Duration(0), type=Marker.SPHERE,
+                      scale=Point(x=0.025, y=0.025, z=0.025),
+                      color=ColorRGBA(r=color[0] / 255., g=color[1] / 255., b=color[2] / 255., a=1.), action=Marker.ADD)
 
     @classmethod
     def _o3d_to_pcl_ros(cls, o3d_pcl: o3d.geometry.PointCloud) -> PointCloud2:
@@ -110,13 +112,17 @@ class Visualizer:
             if isinstance(item[0], np.ndarray) and isinstance(item[0][0], Point):
                 # Combine all the markers across multiple stalks into one MarkerArray
                 markers = []
-                for i in item:
-                    for j in i:
-                        markers.append(cls._point_to_marker(j, marker_color))
+                counter = 0
+                for sub_array in item:
+                    for j in sub_array:
+                        markers.append(cls._point_to_marker(j, marker_color, counter))
+                        counter += 1
                 msg = MarkerArray(markers=markers)
 
+                print('Publishing {} markers'.format(len(markers)))
+
             elif isinstance(item[0], Point):
-                msg = MarkerArray(markers=[cls._point_to_marker(i, marker_color) for i in item])
+                msg = MarkerArray(markers=[cls._point_to_marker(i, marker_color, j) for j, i in enumerate(item)])
             else:
                 print(colored('Invalid visualization of type list of {} when trying to publish with id {}'.format(
                     type(item[0]), id), 'red'))
