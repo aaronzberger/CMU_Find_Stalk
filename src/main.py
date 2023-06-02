@@ -45,13 +45,12 @@ class DetectNode:
         cls.image_index = -1
 
     @classmethod
-    def run_detection(cls, image, visualize: bool) -> np.ndarray:
+    def run_detection(cls, image):
         '''
         Run the Mask R-CNN model on the given image
 
         Parameters
             image (sensor_msgs.msg.Image): The image to run the model on
-            visualize (bool): Whether to visualize the results
 
         Returns
             masks (np.ndarray): The masks of the detected stalks
@@ -63,14 +62,7 @@ class DetectNode:
         scores, bboxes, masks, output = cls.model.forward(cv_image)
         masks = masks.astype(np.uint8) * 255
 
-        if visualize:
-            # Save the image
-            visualized = cls.model.visualize(cv_image, output)
-            cls.visualizer.publish_item('masks', visualized)
-
-            cv.imwrite(f'/home/frc/catkin_ws/src/stalk_detect/viz/{cls.call_index}_{cls.image_index}.png', visualized)
-
-        return masks
+        return masks, output
 
     @classmethod
     def get_stalks_features(cls, masks) -> np.ndarray:
@@ -358,31 +350,37 @@ class DetectNode:
             cls.image_index += 1
 
             # Run the model
-            masks = cls.run_detection(image, VISUALIZE)
+            masks, output = cls.run_detection(image)
+
+            cv_image = cv.cvtColor(cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'), cv.COLOR_BGR2RGB)
+            cv_depth_image = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
+
+            # Scale the image to 640 x 360
+            cv_depth_image = cv.resize(cv_depth_image, (560, 480))
+            # Add the 10 pixels back to the left and right
+            cv_depth_image = cv.copyMakeBorder(cv_depth_image, 0, 0, 40, 40, cv.BORDER_CONSTANT, value=0)
 
             # region Grasp Point Finding
             stalks_features = cls.get_stalks_features(masks)
 
-            print(len(stalks_features), [len(stalk) for stalk in stalks_features])
-
             # Visualize the stalks features on the image
             if VISUALIZE:
-                features_image = cv.cvtColor(cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'), cv.COLOR_BGR2RGB)
+                features_image = cv.cvtColor(cls.model.visualize(cv_image, output), cv.COLOR_RGB2BGR)
+                depth_image_viz = cv.normalize(cv_depth_image, None, 0, 255, cv.NORM_MINMAX, cv.CV_8UC1)
+                depth_image_viz = cv.cvtColor(depth_image_viz, cv.COLOR_GRAY2BGR)
                 for stalk in stalks_features:
                     for point in stalk:
                         cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
-                # cls.visualizer.publish_image('features_image', features_image)
+                        cv.circle(depth_image_viz, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                cls.visualizer.publish_item('masks', features_image)
                 cv.imwrite('viz/features_image_{}.png'.format(cls.image_index), features_image)
-
-            depth_image_cv = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
+                cv.imwrite('viz/depth_image_{}.png'.format(cls.image_index), depth_image_viz)
 
             # Add the depths to the stalk features
             for i, stalk in enumerate(stalks_features):
                 for j in range(len(stalk)):
-                    stalks_features[i][j] = Point(x=stalk[j].x, y=stalk[j].y,
-                                                  z=depth_image_cv[int(stalk[j].x)][int(stalk[j].y)] / DEPTH_SCALE)
-
-            print('after adding depths', len(stalks_features), [len(stalk) for stalk in stalks_features])
+                    stalks_features[i][j] = Point(x=cv_depth_image[int(stalk[j].y)][int(stalk[j].x)] / DEPTH_SCALE,
+                                                  y=stalk[j].x, z=stalk[j].y)
 
             # Transform the points
             stalks_features = cls.transform_points(stalks_features, transformer)

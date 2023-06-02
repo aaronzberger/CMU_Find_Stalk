@@ -54,7 +54,7 @@ class Visualizer:
         header = Header(frame_id='link_base', stamp=rospy.Time.now())
 
         return Marker(header=header, id=id, pose=Pose(position=point), lifetime=rospy.Duration(0), type=Marker.SPHERE,
-                      scale=Point(x=0.025, y=0.025, z=0.025),
+                      scale=Point(x=0.015, y=0.015, z=0.015),
                       color=ColorRGBA(r=color[0] / 255., g=color[1] / 255., b=color[2] / 255., a=1.), action=Marker.ADD)
 
     @classmethod
