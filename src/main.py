@@ -86,17 +86,21 @@ class DetectNode:
         # Get the center points of the stalks
         stalks_features = []
         for mask in masks:
-            # Get the top and bottom height values of the stalk
-            bottom_y, top_y = np.nonzero(mask)[1].min(), np.nonzero(mask)[1].max()
+            # Swap x and y in the mask
+            mask = np.swapaxes(mask, 0, 1)
+            nonzero = np.nonzero(mask)
 
-            stalk_features = [Pose2D(x=np.nonzero(mask[:, bottom_y])[0].mean(), y=bottom_y)]
+            # Get the top and bottom height values of the stalk
+            top_y, bottom_y = nonzero[1].min(), nonzero[1].max()
+
+            stalk_features = [Pose2D(x=np.nonzero(mask[:, top_y])[0].mean(), y=top_y)]
 
             # For every 10 pixels, get the center point
-            for y in range(bottom_y, top_y, 10):
+            for y in range(top_y, bottom_y, 10):
                 # Find the average x value for nonzero pixels at this y value
                 stalk_features.append(Pose2D(x=np.nonzero(mask[:, y])[0].mean(), y=y))
 
-            stalk_features.append(Pose2D(x=np.nonzero(mask[:, top_y])[0].mean(), y=top_y))
+            stalk_features.append(Pose2D(x=np.nonzero(mask[:, bottom_y])[0].mean(), y=bottom_y))
 
             stalks_features.append(np.array(stalk_features))
 
@@ -360,6 +364,15 @@ class DetectNode:
             stalks_features = cls.get_stalks_features(masks)
 
             print(len(stalks_features), [len(stalk) for stalk in stalks_features])
+
+            # Visualize the stalks features on the image
+            if VISUALIZE:
+                features_image = cv.cvtColor(cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'), cv.COLOR_BGR2RGB)
+                for stalk in stalks_features:
+                    for point in stalk:
+                        cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                # cls.visualizer.publish_image('features_image', features_image)
+                cv.imwrite('viz/features_image_{}.png'.format(cls.image_index), features_image)
 
             depth_image_cv = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
 
