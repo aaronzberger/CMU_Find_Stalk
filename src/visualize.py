@@ -1,20 +1,18 @@
+import cv2 as cv
 import numpy as np
 import open3d as o3d
 import rospy
-import sensor_msgs.point_cloud2 as pc2
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Point, Pose
+from geometry_msgs.msg import Point, Pose, Quaternion
 from sensor_msgs.msg import Image, PointCloud2, PointField
+from std_msgs.msg import ColorRGBA, Header
+from termcolor import colored
 from visualization_msgs.msg import Marker, MarkerArray
-import cv2 as cv
 
 # Unfortunate hack to fix a bug in ROS Noetic
 np.float = np.float64
 
-from std_msgs.msg import Header
 from open3d_ros_helper import open3d_ros_helper as orh
-from termcolor import colored
-from std_msgs.msg import ColorRGBA
 
 
 # The data structure of each point in ros PointCloud2: 16 bits = x + y + z + rgb
@@ -39,9 +37,10 @@ class Visualizer:
         cls.publishers: list[rospy.Publisher] = []
         cls.ids = []
         cls.counter = 0
+        cls.marker_counter = 0
 
     @classmethod
-    def _point_to_marker(cls, point: Point, color, id: int) -> Marker:
+    def _point_to_marker(cls, point: Point, color, id: int, size: float) -> Marker:
         '''
         Convert a point to a marker
 
@@ -51,10 +50,10 @@ class Visualizer:
         Returns
             visualization_msgs.msg.Marker: the marker
         '''
-        header = Header(frame_id='link_base', stamp=rospy.Time.now())
+        header = Header(frame_id='world', stamp=rospy.Time.now())
 
-        return Marker(header=header, id=id, pose=Pose(position=point), lifetime=rospy.Duration(0), type=Marker.SPHERE,
-                      scale=Point(x=0.015, y=0.015, z=0.015),
+        return Marker(header=header, id=id, pose=Pose(position=point, orientation=Quaternion(1, 0, 0, 0)),
+                      lifetime=rospy.Duration(0), type=Marker.SPHERE, scale=Point(x=size, y=size, z=size),
                       color=ColorRGBA(r=color[0] / 255., g=color[1] / 255., b=color[2] / 255., a=1.), action=Marker.ADD)
 
     @classmethod
@@ -68,10 +67,14 @@ class Visualizer:
         Returns
             sensor_msgs.msg.PointCloud2: the converted point cloud
         '''
-        return orh.o3dpc_to_rospc(o3d_pcl)
+        return orh.o3dpc_to_rospc(o3d_pcl, frame_id='world', stamp=rospy.Time.now())
 
     @classmethod
-    def publish_item(cls, id, item, delete_old_markers=True, marker_color=(255, 0, 0)):
+    def reset_count(cls):
+        cls.marker_counter = 0
+
+    @classmethod
+    def publish_item(cls, id, item, delete_old_markers=True, marker_color=(255, 0, 0), marker_size=0.01):
         '''
         Publish an item to the visualization topic
 
@@ -84,10 +87,10 @@ class Visualizer:
                 topic_type = Image
             elif isinstance(item, Point):
                 topic_type = Marker
+            elif isinstance(item, o3d.geometry.PointCloud) or isinstance(item, PointCloud2):
+                topic_type = PointCloud2
             elif isinstance(item, list) and isinstance(item[0], Point) or isinstance(item[0], np.ndarray):
                 topic_type = MarkerArray
-            elif isinstance(item, o3d.geometry.PointCloud):
-                topic_type = PointCloud2
             else:
                 print(colored('Invalid visualization type {} when trying to publish with id {}'.format(
                     type(item), id), 'red'))
@@ -109,20 +112,18 @@ class Visualizer:
                 # Delete all old markers
                 cls.publishers[cls.ids.index(id)].publish(MarkerArray(markers=[Marker(action=Marker.DELETEALL)]))
 
-            if isinstance(item[0], np.ndarray) and isinstance(item[0][0], Point):
+            if isinstance(item[0], np.ndarray):
                 # Combine all the markers across multiple stalks into one MarkerArray
                 markers = []
-                counter = 0
                 for sub_array in item:
                     for j in sub_array:
-                        markers.append(cls._point_to_marker(j, marker_color, counter))
-                        counter += 1
+                        markers.append(cls._point_to_marker(j, marker_color, cls.marker_counter, size=marker_size))
+                        cls.marker_counter += 1
+
                 msg = MarkerArray(markers=markers)
 
-                print('Publishing {} markers'.format(len(markers)))
-
             elif isinstance(item[0], Point):
-                msg = MarkerArray(markers=[cls._point_to_marker(i, marker_color, j) for j, i in enumerate(item)])
+                msg = MarkerArray(markers=[cls._point_to_marker(i, marker_color, j, size=marker_size) for j, i in enumerate(item)])
             else:
                 print(colored('Invalid visualization of type list of {} when trying to publish with id {}'.format(
                     type(item[0]), id), 'red'))
@@ -130,6 +131,10 @@ class Visualizer:
 
         elif isinstance(item, o3d.geometry.PointCloud):
             msg = cls._o3d_to_pcl_ros(item, marker_color)
+
+        elif isinstance(item, PointCloud2):
+            msg = item
+            msg.header = Header(frame_id='world', stamp=rospy.Time.now())
 
         else:
             print(colored('Invalid visualization type {} when trying to publish with already established id {}'.format(

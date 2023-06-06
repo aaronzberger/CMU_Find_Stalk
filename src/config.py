@@ -30,6 +30,10 @@ CAMERA_INFO = '/camera/color/camera_info'
 DEPTH_CAMERA_INFO = '/camera/aligned_depth_to_color/camera_info'
 CAMERA_FRAME = 'camera_link'
 BASE_FRAME = 'link_base'
+WORLD_FRAME = 'world'
+CAMERA_COLOR_FRAME = 'camera_color_frame'
+CAMERA_ALIGNED_FRAME = 'camera_aligned_depth_to_color_frame'
+POINTCLOUD_TOPIC = '/camera/pointcloud/points'
 
 # Select the algorithms to use
 GRASP_POINT_ALGO = GraspPointFindingOptions.mask_projection
