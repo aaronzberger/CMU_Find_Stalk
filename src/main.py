@@ -370,8 +370,11 @@ class DetectNode:
             cv_depth_image = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
 
+            # TODO: Test the rectified image for alignment and use that instead
+
             # Scale the image to 560 x 480
             cv_depth_image = cv.resize(cv_depth_image, (560, 480))
+
             # Add the 10 pixels back to the left and right
             cv_depth_image = cv.copyMakeBorder(cv_depth_image, 0, 0, 40, 40, cv.BORDER_CONSTANT, value=0)
 
@@ -381,15 +384,14 @@ class DetectNode:
             # Visualize the stalks features on the image
             if VISUALIZE:
                 features_image = cv.cvtColor(cls.model.visualize(cv_image, output), cv.COLOR_RGB2BGR)
-                depth_image_viz = cv.normalize(cv_depth_image, None, 0, 255, cv.NORM_MINMAX, cv.CV_8UC1)
-                depth_image_viz = cv.cvtColor(depth_image_viz, cv.COLOR_GRAY2BGR)
                 for stalk in stalks_features:
                     for point in stalk:
-                        cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
-                        cv.circle(depth_image_viz, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                        # TODO: For testing
+                        try:
+                            cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                        except Exception as e:
+                            print(stalks_features, point, e)
                 cls.visualizer.publish_item('masks', features_image)
-                cv.imwrite('viz/features_image_{}.png'.format(cls.image_index), features_image)
-                cv.imwrite('viz/depth_image_{}.png'.format(cls.image_index), depth_image_viz)
 
             # Add the depths to the stalk features
             for i, stalk in enumerate(stalks_features):
@@ -402,8 +404,8 @@ class DetectNode:
             stalks_features = cls.transform_points(stalks_features, transformer)
 
             if VISUALIZE:
-                cls.visualizer.reset_count()
-                cls.visualizer.publish_item('features', stalks_features, marker_color=(255, 0, 0), delete_old_markers=True)
+                cls.visualizer.new_frame()
+                cls.visualizer.publish_item('features', stalks_features, marker_color=[255, 0, 0])
 
             if GRASP_POINT_ALGO == GraspPointFindingOptions.mask_only:
                 grasp_points = cls.get_grasp_pts_by_features(stalks_features, transformer)
@@ -423,7 +425,7 @@ class DetectNode:
                         new_points.append(stalk[len_stalk + 1:])
 
                     if len(new_points) > 0:
-                        cls.visualizer.publish_item('features_projected', new_points, marker_color=(0, 255, 0), delete_old_markers=True)
+                        cls.visualizer.publish_item('features_projected', new_points, marker_color=[0, 255, 0])
 
                 grasp_points = cls.get_grasp_pts_by_features(stalks_features)
 
@@ -434,6 +436,7 @@ class DetectNode:
                     cls.visualizer.publish_item('pointcloud', pointcloud)
 
                 grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
+            # endregion
 
             # region Best Stalk Determination
             if BEST_STALK_ALGO == BestStalkOptions.largest:
@@ -445,7 +448,7 @@ class DetectNode:
                 valid_grasp_points = [g for g in grasp_points if g.x <= MAX_X and g.x >= MIN_X and g.y <= MAX_Y and g.y >= MIN_Y]
 
                 if VISUALIZE:
-                    cls.visualizer.publish_item('grasp_points', grasp_points, delete_old_markers=True, marker_color=(255, 0, 255), marker_size=0.02)
+                    cls.visualizer.publish_item('grasp_points', grasp_points, marker_color=[255, 0, 255], marker_size=0.02)
 
                 valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
 
@@ -463,10 +466,7 @@ class DetectNode:
                         num_best_mask_pixels = num_mask_pixels
                         largest_valid_mask = mask
                         grasp_point = valid_grasp_points[i]
-                # largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
-                # print(largest_valid_mask)
-                # print(valid_masks.index(largest_valid_mask))
-                # grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)]
+
                 corresponding_mask = largest_valid_mask
 
             elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
