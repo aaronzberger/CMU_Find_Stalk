@@ -17,6 +17,14 @@ DEPTH_TRUNC = 10
 INLIER_THRESHOLD = 0.05
 MAX_RANSAC_ITERATIONS = 1000
 
+# MIN_X = 0.01
+# MAX_X = 0.5
+MIN_X = 0.5
+MAX_X = 1.0
+OPTIMAL_Z = 0.05
+MIN_Y = -0.5
+MAX_Y = 0.5
+
 # Model parameters
 MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
 SCORE_THRESHOLD = 0.6

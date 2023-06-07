@@ -2,6 +2,7 @@
 
 # -*- encoding: utf-8 -*-
 
+from decimal import Decimal
 import math
 
 import cv2 as cv
@@ -19,7 +20,7 @@ from termcolor import colored
 
 from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC, DEPTH_TRUNC,
                     GRASP_POINT_ALGO, IMAGE_TOPIC, INLIER_THRESHOLD,
-                    MAX_RANSAC_ITERATIONS, VISUALIZE, BestStalkOptions,
+                    MAX_RANSAC_ITERATIONS, MAX_X, MAX_Y, MIN_X, MIN_Y, VISUALIZE, BestStalkOptions,
                     GraspPointFindingOptions)
 from model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
@@ -110,10 +111,12 @@ class DetectNode:
         Returns
             best_stalk (geometry_msgs.msg.Point): The best stalk found
         '''
-        STORING_FAC = 100000  # Allowing for 2 decimal places
+        STORING_FAC = 100000.0  # Allowing for 2 decimal places
+
+        original_positions = positions
 
         # Transform to list of 2D points
-        positions = [[p.x * STORING_FAC + p.y, p.z] for p in positions]
+        positions = [[float(int(p.x * STORING_FAC)) + p.y, p.z] for p in positions]
 
         # Use a custom metric to allow 3-dimensional clustering
         def three_dim(a, b):
@@ -133,9 +136,22 @@ class DetectNode:
                 best_cluster = cluster
 
         # Average the points in the best cluster
-        best_stalk = np.mean(np.array(positions)[np.nonzero(clustering.labels_ == best_cluster)], axis=0)
+        best_stalk_average = np.mean(np.array(positions)[np.nonzero(clustering.labels_ == best_cluster)], axis=0)
+        best_stalk_average = [round(best_stalk_average[0] / STORING_FAC, 2), best_stalk_average[0] % 1, best_stalk_average[1]]
 
-        return Point(x=best_stalk[0] / STORING_FAC, y=best_stalk[0] % STORING_FAC, z=best_stalk[1])
+        # Find the point in the best cluster closest to the average
+        best_stalk = None
+        best_stalk_dist = float('inf')
+        for i in range(len(original_positions)):
+            if clustering.labels_[i] == best_cluster:
+                dist = math.sqrt((original_positions[i].x - best_stalk_average[0])**2 +
+                                 (original_positions[i].y - best_stalk_average[1])**2 +
+                                 (original_positions[i].z - best_stalk_average[2])**2)
+                if dist < best_stalk_dist:
+                    best_stalk_dist = dist
+                    best_stalk = [original_positions[i].x, original_positions[i].y, original_positions[i].z]
+
+        return Point(*best_stalk)
 
     @classmethod
     def get_pcl(cls, image, depth_image, transformer):
@@ -411,9 +427,6 @@ class DetectNode:
 
                 grasp_points = cls.get_grasp_pts_by_features(stalks_features)
 
-                if VISUALIZE:
-                    cls.visualizer.publish_item('grasp_points', grasp_points, delete_old_markers=False, marker_color=(255, 0, 255), marker_size=0.02)
-
             elif GRASP_POINT_ALGO == GraspPointFindingOptions.ransac_ground_plane:
                 pointcloud = cls.get_pcl(image, depth_image, transformer)
 
@@ -422,14 +435,6 @@ class DetectNode:
 
                 grasp_points = cls.get_grasp_points_by_ransac(stalks_features, pointcloud, transformer)
 
-            frame_count += 1
-            return
-
-            # if VISUALIZE:
-            #     cls.visualizer.publish_item('features', stalks_features, marker_color=(255, 0, 0))
-            #     cls.visualizer.publish_item('grasp_points', grasp_points, delete_old_markers=False, marker_color=(0, 255, 0))
-            # endregion
-
             # region Best Stalk Determination
             if BEST_STALK_ALGO == BestStalkOptions.largest:
                 largest_mask = max(masks, key=lambda mask: np.count_nonzero(mask))
@@ -437,7 +442,11 @@ class DetectNode:
                 corresponding_mask = largest_mask
 
             elif BEST_STALK_ALGO == BestStalkOptions.largest_favorable:
-                valid_grasp_points = [g for g in grasp_points if g.z <= 3 and g.z >= 1]
+                valid_grasp_points = [g for g in grasp_points if g.x <= MAX_X and g.x >= MIN_X and g.y <= MAX_Y and g.y >= MIN_Y]
+
+                if VISUALIZE:
+                    cls.visualizer.publish_item('grasp_points', grasp_points, delete_old_markers=True, marker_color=(255, 0, 255), marker_size=0.02)
+
                 valid_masks = [masks[grasp_points.index(g)] for g in valid_grasp_points]
 
                 if len(valid_masks) == 0:
@@ -445,8 +454,19 @@ class DetectNode:
                     frame_count += 1
                     return
 
-                largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
-                grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)][0]
+                largest_valid_mask = None
+                num_best_mask_pixels = 0
+                grasp_point = None
+                for i, mask in enumerate(valid_masks):
+                    num_mask_pixels = np.count_nonzero(mask)
+                    if num_mask_pixels > num_best_mask_pixels:
+                        num_best_mask_pixels = num_mask_pixels
+                        largest_valid_mask = mask
+                        grasp_point = valid_grasp_points[i]
+                # largest_valid_mask = max(valid_masks, key=lambda mask: np.count_nonzero(mask))
+                # print(largest_valid_mask)
+                # print(valid_masks.index(largest_valid_mask))
+                # grasp_point = valid_grasp_points[valid_masks.index(largest_valid_mask)]
                 corresponding_mask = largest_valid_mask
 
             elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
@@ -458,7 +478,6 @@ class DetectNode:
             if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
                 positions.append(grasp_point)
                 all_masks.append(corresponding_mask)
-                pcls.append(pointcloud)
             # endregion
 
             frame_count += 1
