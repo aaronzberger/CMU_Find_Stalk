@@ -2,7 +2,6 @@
 
 # -*- encoding: utf-8 -*-
 
-from decimal import Decimal
 import math
 
 import cv2 as cv
@@ -191,6 +190,8 @@ class DetectNode:
             goal_height = min(stalk, key=lambda pt: pt.z).z + 0.05
             grasp_points.append(min(stalk, key=lambda pt, goal_height=goal_height: abs(pt.z - goal_height)))
 
+        # TODO: Ensure that the depth (X) is reasonable for the stalk. If not, use the X value from the line of best fit
+
         return grasp_points
 
     @classmethod
@@ -207,7 +208,7 @@ class DetectNode:
         '''
         transformed_features = []
         for stalk in stalks_features:
-            transformed_features.append(np.array([transformer.transform_point(p) for p in stalk]))
+            transformed_features.append(np.array([transformer.transform_cam_to_world(p) for p in stalk]))
 
         return transformed_features
 
@@ -476,6 +477,8 @@ class DetectNode:
                 transformers.append(transformer)
 
             if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
+                # NOTE: Temporarily transforming to camera_frame for testing
+                grasp_point = transformer.transform_world_to_cam(grasp_point)
                 positions.append(grasp_point)
                 all_masks.append(corresponding_mask)
             # endregion

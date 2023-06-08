@@ -25,14 +25,21 @@ class Transformer():
     '''
     def __init__(self, tf_buffer: tf2_ros.Buffer):
         # Get the transformation from camera to world
-        trans = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_ALIGNED_FRAME, rospy.Time(0))
+        trans_cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_ALIGNED_FRAME, rospy.Time(0))
+        trans_world_to_cam = tf_buffer.lookup_transform(CAMERA_ALIGNED_FRAME, WORLD_FRAME, rospy.Time(0))
 
         # Convert the Transform msg to a Pose msg
         pose = Pose(position=Point(
-                        x=trans.transform.translation.x, y=trans.transform.translation.y, z=trans.transform.translation.z),
-                    orientation=trans.transform.rotation)
+                        x=trans_cam_to_world.transform.translation.x, y=trans_cam_to_world.transform.translation.y, z=trans_cam_to_world.transform.translation.z),
+                    orientation=trans_cam_to_world.transform.rotation)
 
-        self.E = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
+        self.E_cam_to_world = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
+
+        pose = Pose(position=Point(
+                        x=trans_world_to_cam.transform.translation.x, y=trans_world_to_cam.transform.translation.y, z=trans_world_to_cam.transform.translation.z),
+                    orientation=trans_world_to_cam.transform.rotation)
+
+        self.E_world_to_cam = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
 
         # Get the camera intrinsics
         camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo)
@@ -42,7 +49,7 @@ class Transformer():
 
         self.width, self.height = camera_info.width, camera_info.height
 
-    def transform_point(self, pt: Point) -> Point:
+    def transform_cam_to_world(self, pt: Point) -> Point:
         '''
         Transform a point from the camera frame to the robot frame for this transform
 
@@ -61,6 +68,21 @@ class Transformer():
         y *= pt.z
 
         # Transform
-        transformed_pt = np.matmul(self.E, np.array([pt.z, x, y, 1]))
+        transformed_pt = np.matmul(self.E_cam_to_world, np.array([pt.z, x, y, 1]))
+
+        return Point(x=transformed_pt[0], y=transformed_pt[1], z=transformed_pt[2])
+
+    def transform_world_to_cam(self, pt: Point) -> Point:
+        '''
+        Transform a point from the robot frame to the camera frame for this transform
+
+        Parameters
+            pt (geometry_msgs.msg.Point): The point to transform
+
+        Returns
+            geometry_msgs.msg.Point: The transformed point
+        '''
+        # Transform
+        transformed_pt = np.matmul(self.E_world_to_cam, np.array([pt.x, pt.y, pt.z, 1]))
 
         return Point(x=transformed_pt[0], y=transformed_pt[1], z=transformed_pt[2])
