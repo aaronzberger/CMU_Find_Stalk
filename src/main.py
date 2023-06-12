@@ -18,7 +18,7 @@ from termcolor import colored
 
 from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC, DEPTH_TRUNC,
                     GRASP_POINT_ALGO, IMAGE_TOPIC, INLIER_THRESHOLD,
-                    MAX_RANSAC_ITERATIONS, MAX_X, MAX_Y, MIN_X, MIN_Y,
+                    MAX_RANSAC_ITERATIONS, MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
                     OPTIMAL_STALK_DISTANCE, VISUALIZE, BestStalkOptions,
                     GraspPointFindingOptions)
 from model import MaskRCNN
@@ -80,6 +80,10 @@ class DetectNode:
         # Get the center points of the stalks
         stalks_features = []
         for mask in masks:
+            # Ensure the mask has the minimum number of pixels
+            if np.count_nonzero(mask) < MINIMUM_MASK_AREA:
+                continue
+
             # Swap x and y in the mask
             mask = np.swapaxes(mask, 0, 1)
             nonzero = np.nonzero(mask)
@@ -92,7 +96,11 @@ class DetectNode:
             # For every 10 pixels, get the center point
             for y in range(top_y, bottom_y, 10):
                 # Find the average x value for nonzero pixels at this y value
-                stalk_features.append(Pose2D(x=np.nonzero(mask[:, y])[0].mean(), y=y))
+                y_values = np.nonzero(mask[:, y])[0]
+
+                # If there are no y pixels, simply skip this value
+                if len(y_values) > 0:
+                    stalk_features.append(Pose2D(x=y_values.mean(), y=y))
 
             stalk_features.append(Pose2D(x=np.nonzero(mask[:, bottom_y])[0].mean(), y=bottom_y))
 
@@ -339,10 +347,12 @@ class DetectNode:
             # Transform the points
             stalks_features = cls.transform_points(stalks_features, transformer)
 
-            # TODO eliminate stalks with too few points (too few mask pixels, probably)
-
             # Turn these features into stalks
-            stalks = [Stalk(points=stalk) for stalk in stalks_features]
+            stalks = []
+            for stalk in stalks_features:
+                new_stalk = Stalk(points=stalk)
+                if new_stalk.is_valid():
+                    stalks.append(new_stalk)
 
             if VISUALIZE:
                 cls.visualizer.new_frame()
@@ -413,9 +423,6 @@ class DetectNode:
                 largest_weight = max(mask_weights)
                 grasp_point = valid_grasp_points[mask_weights.index(largest_weight)]
 
-                if VISUALIZE:
-                    cls.visualizer.publish_item('grasp_points', grasp_points, marker_color=[255, 0, 255], marker_size=0.02)
-
                 largest_valid_mask = None
                 num_best_mask_pixels = 0
                 grasp_point = None
@@ -425,6 +432,9 @@ class DetectNode:
                         num_best_mask_pixels = num_mask_pixels
                         largest_valid_mask = mask
                         grasp_point = valid_grasp_points[i]
+
+                if VISUALIZE:
+                    cls.visualizer.publish_item('grasp_points', [grasp_point], marker_color=[255, 0, 255], marker_size=0.02)
 
                 corresponding_mask = largest_valid_mask
 
@@ -444,8 +454,6 @@ class DetectNode:
             frame_count += 1
 
         # Setup the callback for the images and depth images
-        # cls.sub_images = message_filters.Subscriber(IMAGE_TOPIC, Image)
-        # cls.sub_depth = message_filters.Subscriber(DEPTH_TOPIC, Image)
         cls.sub_images = KillableSubscriber(IMAGE_TOPIC, Image)
         cls.sub_depth = KillableSubscriber(DEPTH_TOPIC, Image)
         ts = ApproximateTimeSynchronizer(
@@ -453,7 +461,7 @@ class DetectNode:
         ts.registerCallback(image_depth_callback)
 
         # Continue until enough frames have been gathered, or the timeout has been reached
-        while frame_count <= req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
+        while frame_count < req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
             rospy.sleep(0.1)
 
         # Unregister the callback
@@ -463,7 +471,7 @@ class DetectNode:
 
         #  Cluster the positions, find the best one, average it
         if len(positions) == 0:
-            rospy.logwarn('No stalks detected for this service request')
+            print(colored('No stalks detected for this service request, requesting a REPOSITION', 'red'))
             return GetStalkResponse(success='REPOSITION')
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions

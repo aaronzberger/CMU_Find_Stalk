@@ -19,13 +19,13 @@ def ransac_3d(points):
     '''
     # Convert np.ndarray[Point] to np.array (N, 3)
     points = np.array([[p.x, p.y, p.z] for p in points])
+
+    # Catch the RuntimeWarning that pyransac3d throws when it fails to find a line
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         line = pyrsc.Line().fit(points, thresh=INLIER_THRESHOLD, maxIteration=MAX_LINE_RANSAC_ITERATIONS)
         if len(w) > 0 and not issubclass(w[-1].category, RuntimeWarning):
             warnings.warn(w[-1].message, w[-1].category)
-
-    # print(colored('RANSAC line: {}'.format(line), 'blue'))
 
     return line
 
@@ -69,6 +69,9 @@ class Stalk:
         # Find the point on the line at this height
         x, y = find_xy_from_z(self.line, goal_height)
         return Point(x=x, y=y, z=goal_height)
+
+    def is_valid(self):
+        return len(self.line[0]) > 0
 
 
 class KillableSubscriber(Subscriber):

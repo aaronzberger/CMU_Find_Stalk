@@ -18,22 +18,23 @@ INLIER_THRESHOLD = 0.025
 MAX_RANSAC_ITERATIONS = 1000
 
 # Used for RANSAC line detection for the stalks
-MAX_STALK_THICKNESS = 0.01
+MAX_STALK_THICKNESS = 0.005  # Used for RANSAC Inlier threshold
 MAX_LINE_RANSAC_ITERATIONS = 1000
 
 OPTIMAL_STALK_DISTANCE = 0.38  # 15 inches
+OPTIMAL_STALK_HEIGHT = 0.05  # 2 inches
+MINIMUM_MASK_AREA = 30
 
 # MIN_X = 0.01
 # MAX_X = 0.5
 MIN_X = 0.5
 MAX_X = 1.0
-OPTIMAL_Z = 0.05
 MIN_Y = -0.5
 MAX_Y = 0.5
 
 # Model parameters
 MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
-SCORE_THRESHOLD = 0.6
+SCORE_THRESHOLD = 0.8
 CUDA_DEVICE_NO = 0
 
 VISUALIZE = True
