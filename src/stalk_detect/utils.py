@@ -4,7 +4,7 @@ from geometry_msgs.msg import Point
 import warnings
 from message_filters import Subscriber
 
-from config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS
+from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS
 
 
 def ransac_3d(points):

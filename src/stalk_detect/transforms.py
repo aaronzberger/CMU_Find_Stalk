@@ -5,8 +5,8 @@ import tf_conversions
 from geometry_msgs.msg import Point, Pose
 from sensor_msgs.msg import CameraInfo
 
-from config import (CAMERA_ALIGNED_FRAME, CAMERA_INFO, DEPTH_CAMERA_INFO,
-                    WORLD_FRAME)
+from stalk_detect.config import (CAMERA_ALIGNED_FRAME, CAMERA_INFO,
+                                 DEPTH_CAMERA_INFO, WORLD_FRAME)
 
 
 class TfBuffer():

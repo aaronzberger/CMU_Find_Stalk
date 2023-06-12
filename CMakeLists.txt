@@ -10,6 +10,8 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
 )
 
+catkin_python_setup()
+
 ################################################
 ## Declare ROS messages, services and actions ##
 ################################################
@@ -31,8 +33,10 @@ generate_messages(
 ###################################
 
 catkin_package(
+ LIBRARIES stalk_detect
  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs std_msgs message_runtime
 )
+
 
 ###########
 ## Build ##
@@ -43,4 +47,9 @@ catkin_package(
 include_directories(
 # include
   ${catkin_INCLUDE_DIRS}
+)
+
+install(PROGRAMS
+  scripts/main
+  DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

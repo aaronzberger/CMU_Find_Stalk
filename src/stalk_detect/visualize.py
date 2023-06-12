@@ -7,12 +7,13 @@ from sensor_msgs.msg import Image, PointCloud2
 from std_msgs.msg import ColorRGBA, Header
 from termcolor import colored
 from visualization_msgs.msg import Marker, MarkerArray
-from utils import Stalk, find_xy_from_z
+
+from stalk_detect.utils import Stalk, find_xy_from_z
 
 # Unfortunate hack to fix a bug in ROS Noetic
 np.float = np.float64
 
-from open3d_ros_helper import open3d_ros_helper as orh
+from open3d_ros_helper import open3d_ros_helper as orh  # noqa: E402
 
 
 class Visualizer:
@@ -134,7 +135,7 @@ class Visualizer:
                 return
             else:
                 topic_type = cls.data_to_ros_type[type(item)][0] if type(item) in cls.data_to_ros_type.keys() else type(item)
-                cls.publishers[topic] = (rospy.Publisher('stalk_detect/viz/{}'.format(topic), topic_type, queue_size=10), topic_type)
+                cls.publishers[topic] = (rospy.Publisher(f'stalk_detect/viz/{topic}', topic_type, queue_size=10), topic_type)
 
         if type(item) in cls.data_to_ros_type.keys():
             # Validate the additional arguments for Marker and MarkerArray types

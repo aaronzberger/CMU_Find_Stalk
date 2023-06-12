@@ -4,7 +4,7 @@ from detectron2.data.catalog import MetadataCatalog
 from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import ColorMode, Visualizer
 
-from config import CUDA_DEVICE_NO, MODEL_PATH, SCORE_THRESHOLD
+from stalk_detect.config import CUDA_DEVICE_NO, MODEL_PATH, SCORE_THRESHOLD
 
 
 class MaskRCNN:

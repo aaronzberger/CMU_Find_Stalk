@@ -16,16 +16,17 @@ from sensor_msgs.msg import Image
 from sklearn.cluster import DBSCAN
 from termcolor import colored
 
-from config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC, DEPTH_TRUNC,
-                    GRASP_POINT_ALGO, IMAGE_TOPIC, INLIER_THRESHOLD,
-                    MAX_RANSAC_ITERATIONS, MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
-                    OPTIMAL_STALK_DISTANCE, VISUALIZE, BestStalkOptions,
-                    GraspPointFindingOptions)
-from model import MaskRCNN
+from stalk_detect.config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC,
+                                 DEPTH_TRUNC, GRASP_POINT_ALGO, IMAGE_TOPIC,
+                                 INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
+                                 MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
+                                 OPTIMAL_STALK_DISTANCE, VISUALIZE,
+                                 BestStalkOptions, GraspPointFindingOptions)
+from stalk_detect.model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
-from transforms import TfBuffer, Transformer
-from utils import KillableSubscriber, Stalk
-from visualize import Visualizer
+from stalk_detect.transforms import TfBuffer, Transformer
+from stalk_detect.utils import KillableSubscriber, Stalk
+from stalk_detect.visualize import Visualizer
 
 
 class DetectNode:
