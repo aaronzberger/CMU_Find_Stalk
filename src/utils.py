@@ -2,6 +2,7 @@ import numpy as np
 import pyransac3d as pyrsc
 from geometry_msgs.msg import Point
 import warnings
+from message_filters import Subscriber
 
 from config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS
 
@@ -68,3 +69,11 @@ class Stalk:
         # Find the point on the line at this height
         x, y = find_xy_from_z(self.line, goal_height)
         return Point(x=x, y=y, z=goal_height)
+
+
+class KillableSubscriber(Subscriber):
+    '''
+    A message filter subscriber that can unregister to the topic
+    '''
+    def unregister(self):
+        self.sub.unregister()
