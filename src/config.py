@@ -14,8 +14,12 @@ BestStalkOptions = Enum(
 # Camera parameters
 DEPTH_SCALE = 1000.0
 DEPTH_TRUNC = 10
-INLIER_THRESHOLD = 0.05
+INLIER_THRESHOLD = 0.025
 MAX_RANSAC_ITERATIONS = 1000
+
+# Used for RANSAC line detection for the stalks
+MAX_STALK_THICKNESS = 0.01
+MAX_LINE_RANSAC_ITERATIONS = 1000
 
 # MIN_X = 0.01
 # MAX_X = 0.5

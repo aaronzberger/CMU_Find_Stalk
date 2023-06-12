@@ -7,6 +7,7 @@ from sensor_msgs.msg import Image, PointCloud2
 from std_msgs.msg import ColorRGBA, Header
 from termcolor import colored
 from visualization_msgs.msg import Marker, MarkerArray
+from utils import Stalk, find_xy_from_z
 
 # Unfortunate hack to fix a bug in ROS Noetic
 np.float = np.float64
@@ -31,12 +32,49 @@ class Visualizer:
             np.ndarray: (Image, lambda img: CvBridge().cv2_to_imgmsg(img, encoding='bgr8')),
             Point: (Marker, lambda pt: cls._point_to_marker(pt, (255, 0, 0), cls.marker_counter, 0.01)),
             o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id='world', stamp=rospy.Time.now())),
-            list: (MarkerArray, lambda lst: cls.list_to_marker_array(lst))
+            list: (MarkerArray, lambda lst: cls.list_to_marker_array(lst)),
+            Stalk: (Marker, lambda pts: cls.stalk_to_viz(pts))
         }
         cls.output_types = [i[0] for i in list(cls.data_to_ros_type.values())]
 
         cls.marker_color = [255, 0, 0]
         cls.marker_size = 0.01
+
+    @classmethod
+    def stalk_to_viz(cls, stalk: Stalk) -> Marker:
+        '''
+        Convert a list of points to a line marker
+
+        Parameters
+            stalk (Stalk): the stalk to visualize
+
+        Returns
+            visualization_msgs.msg.Marker: the marker
+        '''
+        top_z = max([p.z for p in stalk.points])
+
+        top_x, top_y = find_xy_from_z(stalk.line, top_z)
+        bottom_x, bottom_y = find_xy_from_z(stalk.line, 0)
+
+        top_point = Point(x=top_x, y=top_y, z=top_z)
+        bottom_point = Point(x=bottom_x, y=bottom_y, z=0)
+
+        marker = Marker()
+        marker.header.frame_id = 'world'
+        marker.header.stamp = rospy.Time.now()
+        marker.ns = 'points_to_line'
+        marker.id = cls.marker_counter
+        marker.type = Marker.LINE_STRIP
+        marker.action = Marker.ADD
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = cls.marker_size
+        marker.color.r = cls.marker_color[0] / 255
+        marker.color.g = cls.marker_color[1] / 255
+        marker.color.b = cls.marker_color[2] / 255
+        marker.color.a = 1.0
+        marker.points = [top_point, bottom_point]
+        cls.marker_counter += 1
+        return marker
 
     @classmethod
     def list_to_marker_array(cls, points: list) -> MarkerArray:

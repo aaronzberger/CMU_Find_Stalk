@@ -20,7 +20,12 @@ class MaskRCNN:
         self.model_cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = (128)
         self.model_cfg.MODEL.DEVICE = 'cuda:{}'.format(CUDA_DEVICE_NO) if CUDA_DEVICE_NO >= 0 else 'cpu'
 
-        self.model = DefaultPredictor(self.model_cfg)
+        try:
+            self.model = DefaultPredictor(self.model_cfg)
+        except AssertionError:
+            # If the model couldn't be loaded, try to load it from the CPU
+            self.model_cfg.MODEL.DEVICE = 'cpu'
+            self.model = DefaultPredictor(self.model_cfg)
 
     def forward(self, image):
         '''

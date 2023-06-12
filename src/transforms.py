@@ -5,10 +5,16 @@ import tf_conversions
 from geometry_msgs.msg import Point, Pose
 from sensor_msgs.msg import CameraInfo
 
-from config import BASE_FRAME, CAMERA_ALIGNED_FRAME, CAMERA_FRAME, CAMERA_INFO, DEPTH_CAMERA_INFO, CAMERA_COLOR_FRAME, WORLD_FRAME
+from config import (CAMERA_ALIGNED_FRAME, CAMERA_INFO, DEPTH_CAMERA_INFO,
+                    WORLD_FRAME)
 
 
 class TfBuffer():
+    '''
+    Helper class for storing the tf buffer
+
+    This class needs to be initialized before looking up any transforms in the TF tree below
+    '''
     @classmethod
     def __init__(cls):
         cls.tf_buffer = tf2_ros.Buffer()
@@ -25,19 +31,19 @@ class Transformer():
     '''
     def __init__(self, tf_buffer: tf2_ros.Buffer):
         # Get the transformation from camera to world
-        trans_cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_ALIGNED_FRAME, rospy.Time(0))
-        trans_world_to_cam = tf_buffer.lookup_transform(CAMERA_ALIGNED_FRAME, WORLD_FRAME, rospy.Time(0))
+        cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_ALIGNED_FRAME, rospy.Time(0)).transform
+        world_to_cam = tf_buffer.lookup_transform(CAMERA_ALIGNED_FRAME, WORLD_FRAME, rospy.Time(0)).transform
 
         # Convert the Transform msg to a Pose msg
         pose = Pose(position=Point(
-                        x=trans_cam_to_world.transform.translation.x, y=trans_cam_to_world.transform.translation.y, z=trans_cam_to_world.transform.translation.z),
-                    orientation=trans_cam_to_world.transform.rotation)
+                        x=cam_to_world.translation.x, y=cam_to_world.translation.y, z=cam_to_world.translation.z),
+                    orientation=cam_to_world.rotation)
 
         self.E_cam_to_world = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
 
         pose = Pose(position=Point(
-                        x=trans_world_to_cam.transform.translation.x, y=trans_world_to_cam.transform.translation.y, z=trans_world_to_cam.transform.translation.z),
-                    orientation=trans_world_to_cam.transform.rotation)
+                        x=world_to_cam.translation.x, y=world_to_cam.translation.y, z=world_to_cam.translation.z),
+                    orientation=world_to_cam.rotation)
 
         self.E_world_to_cam = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
 
