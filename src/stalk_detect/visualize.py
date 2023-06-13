@@ -79,7 +79,7 @@ class Visualizer:
 
     @classmethod
     def list_to_marker_array(cls, points: list) -> MarkerArray:
-        if isinstance(points[0], np.ndarray):
+        if isinstance(points[0], list):
             # Combine all the markers across multiple stalks into one MarkerArray
             markers = []
             for sub_array in points:
@@ -92,6 +92,10 @@ class Visualizer:
         elif isinstance(points[0], Point):
             return MarkerArray(markers=[cls._point_to_marker(
                 i, cls.marker_color, cls.marker_counter + j, size=cls.marker_size) for j, i in enumerate(points)])
+
+        else:
+            print(colored(f'Invalid type {type(points[0])} for list_to_marker_array'), 'yellow')
+            return MarkerArray()
 
     @classmethod
     def _point_to_marker(cls, point: Point, color, id: int, size: float) -> Marker:

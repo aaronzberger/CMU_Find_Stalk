@@ -10,3 +10,4 @@ shims
 .vscode/*
 **/__pycache__
 viz/*
+model_final.pth

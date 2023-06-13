@@ -17,7 +17,7 @@ Detect corn stalks in an environment and calculate the best grasping point for a
 ## Details
 This pipeline is meant as a plug-and-play system, meaning it can be applied to varying similar problems with little interference. Each part of the pipeline can be swapped out with different alternatives, which may work better under certain environment conditions, like camera field of view, ground plane visibility, ground plane smoothness, point cloud density and accuracy, etc.
 
-You can select the desired options for each pipeline step in [`src/config.py`](https://github.com/aaronzberger/CMU_Find_Stalk/blob/main/src/config.py).
+You can select the desired options for each pipeline step in [`src/config.py`](https://github.com/aaronzberger/CMU_Find_Stalk/blob/main/src/stalk_detect/config.py).
 
 The options are described in more detail [below](#pipeline).
 
@@ -47,14 +47,14 @@ The code is separated into 3 steps, as shown below.
 
 ![Pipeline](https://github.com/aaronzberger/CMU_Find_Stalk/assets/35245591/4ce6a61d-f59d-4b20-9d7b-c98ceec4ca0a)
 
-- In "Stalk Detection", the images are converted to image masks representing the stalk locations in 2D. Currently, the only option available is Mask-R-CNN, which performs well on this task. The model is run in [`model.py`](https://github.com/aaronzberger/CMU_Find_Stalk/blob/main/src/model.py) and called by the ROS service [here](https://github.com/aaronzberger/CMU_Find_Stalk/blob/78da4aee769fc75f414fe1d12053476434de4b5e/src/main.py#LL331C7-L331C7). See [Dataset](#dataset), [Training](#training), and [Labeling](#labeling) for tools on how to get your model trained easily.
+- In "Stalk Detection", the images are converted to image masks representing the stalk locations in 2D. Currently, the only option available is Mask-R-CNN, which performs well on this task. The model is run in [`model.py`](https://github.com/aaronzberger/CMU_Find_Stalk/blob/main/src/stalk_detect/model.py) and called by the ROS service [here](https://github.com/aaronzberger/CMU_Find_Stalk/blob/04e34d25069f777d2ff4becde840878ab8d9c20f/scripts/main#LL65C47-L65C47). See [Dataset](#dataset), [Training](#training), and [Labeling](#labeling) for tools on how to get your model trained easily.
 
 
 ## Usage
 To get this node up and running, you'll need to prepare the following:
 1. Install [Detectron2](https://detectron2.readthedocs.io/en/latest/tutorials/install.html), which requires CUDA and torch. Detectron2 also works with torch installed for CPU, if you do not have a GPU. We recommend building Detectron2 from source.
 2. Install all package dependencies, which are in requirements.txt.
-3. If desired, replace the [first line](https://github.com/aaronzberger/CMU_UNet_Node/blob/main/src/main.py#L1) of `main.py` with your Python interpreter path
+3. If desired, replace the [first line](https://github.com/aaronzberger/CMU_Find_Stalk/blob/main/scripts/main#LL1C11-L1C11) of `main.py` with your Python interpreter path
 4. Fill in the configuration file with your desired parameters: specifically, make sure to edit the [`MODEL_PATH`](https://github.com/aaronzberger/CMU_Find_Stalk/blob/fca1f3f9c3d962b5cb712d720bd9cb57dc0e9a0c/src/config.py#L36), the [TF frames](https://github.com/aaronzberger/CMU_Find_Stalk/blob/fca1f3f9c3d962b5cb712d720bd9cb57dc0e9a0c/src/config.py#L46:L50), the image and depth image [topics](https://github.com/aaronzberger/CMU_Find_Stalk/blob/fca1f3f9c3d962b5cb712d720bd9cb57dc0e9a0c/src/config.py#L42:L45), and the constraints on stalk distance.
 5. Ensure the `main.py` script is executable, run `catkin_make`, start up your `roscore`, and run:
   

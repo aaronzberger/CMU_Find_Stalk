@@ -12,7 +12,7 @@ def ransac_3d(points):
     Perform RANSAC line detection on a set of 3D points
 
     Parameters
-        points (np.ndarray[Point]): The points to perform RANSAC on
+        points (list[Point]): The points to perform RANSAC on
 
     Returns
         best_line (np.ndarray[Point]): The best line found
@@ -52,7 +52,7 @@ class Stalk:
     '''
     Helper class for storing a 3D stalk
     '''
-    def __init__(self, points: 'np.ndarray[Point]'):
+    def __init__(self, points: 'list[Point]'):
         self.points = points
         self.line = ransac_3d(points)
 
