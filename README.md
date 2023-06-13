@@ -64,7 +64,7 @@ To get this node up and running, you'll need to prepare the following:
 We recommend training on a large number of images for robustness in deployment. With the labeling tool provided below, labeling is very quick, and 500 images should take no more than a few hours.
 
 ### Labeling
-For labeling, we use the [Segment Anything](https://segment-anything.com/) model to predict masks around objects given a position contained within the mask. This [tool](#https://github.com/aaronzberger/salt) is forked from the commonly-used [SALT](https://github.com/anuragxel/salt) package (Segment Anything Labeling Tool), and fixes some small bugs, adds progress bars, and adds a setup file for automatic configuration.
+For labeling, we use the [Segment Anything](https://segment-anything.com/) model to predict masks around objects given a position contained within the mask. This [tool](https://github.com/aaronzberger/salt) is forked from the commonly-used [SALT](https://github.com/anuragxel/salt) package (Segment Anything Labeling Tool), and fixes some small bugs, adds progress bars, and adds a setup file for automatic configuration.
 
 Follow instructions described in the tool's README.
 
