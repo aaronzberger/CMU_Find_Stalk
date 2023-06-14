@@ -5,8 +5,8 @@ import tf_conversions
 from geometry_msgs.msg import Point, Pose
 from sensor_msgs.msg import CameraInfo
 
-from stalk_detect.config import (CAMERA_ALIGNED_FRAME, CAMERA_INFO,
-                                 DEPTH_CAMERA_INFO, WORLD_FRAME)
+from stalk_detect.config import (CAMERA_INFO,
+                                 DEPTH_CAMERA_INFO, WORLD_FRAME, CAMERA_COLOR_FRAME)
 
 
 class TfBuffer():
@@ -31,8 +31,8 @@ class Transformer():
     '''
     def __init__(self, tf_buffer: tf2_ros.Buffer):
         # Get the transformation from camera to world
-        cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_ALIGNED_FRAME, rospy.Time(0)).transform
-        world_to_cam = tf_buffer.lookup_transform(CAMERA_ALIGNED_FRAME, WORLD_FRAME, rospy.Time(0)).transform
+        cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_COLOR_FRAME, rospy.Time(0)).transform
+        world_to_cam = tf_buffer.lookup_transform(CAMERA_COLOR_FRAME, WORLD_FRAME, rospy.Time(0)).transform
 
         # Convert the Transform msg to a Pose msg
         pose = Pose(position=Point(

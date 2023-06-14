@@ -33,21 +33,22 @@ MIN_Y = -0.5
 MAX_Y = 0.5
 
 # Model parameters
-MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_final.pth'
+MODEL_PATH = '/home/amiga/amiga_ws/src/CMU_Find_Stalk/model.pth'
+SCORE_THRESHOLD = 0.8
 SCORE_THRESHOLD = 0.8
 CUDA_DEVICE_NO = 0
 
 VISUALIZE = True
 
 IMAGE_TOPIC = '/camera/color/image_raw'
-DEPTH_TOPIC = '/camera/aligned_depth_to_color/image_raw'
+DEPTH_TOPIC = '/camera/depth/image_rect_raw'
 CAMERA_INFO = '/camera/color/camera_info'
-DEPTH_CAMERA_INFO = '/camera/aligned_depth_to_color/camera_info'
+DEPTH_CAMERA_INFO = '/camera/depth/camera_info'
 CAMERA_FRAME = 'camera_link'
 BASE_FRAME = 'link_base'
 WORLD_FRAME = 'world'
 CAMERA_COLOR_FRAME = 'camera_color_frame'
-CAMERA_ALIGNED_FRAME = 'camera_aligned_depth_to_color_frame'
+# CAMERA_ALIGNED_FRAME = 'camera_aligned_depth_to_color_frame'
 POINTCLOUD_TOPIC = '/camera/pointcloud/points'
 
 # Select the algorithms to use

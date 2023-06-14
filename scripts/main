@@ -13,7 +13,7 @@ import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Pose2D
 from message_filters import ApproximateTimeSynchronizer
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 from sklearn.cluster import DBSCAN
 from termcolor import colored
 
@@ -22,7 +22,7 @@ from stalk_detect.config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC,
                                  INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
                                  MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
                                  OPTIMAL_STALK_DISTANCE, VISUALIZE,
-                                 BestStalkOptions, GraspPointFindingOptions)
+                                 BestStalkOptions, GraspPointFindingOptions, CAMERA_INFO)
 from stalk_detect.model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from stalk_detect.transforms import TfBuffer, Transformer
@@ -41,6 +41,14 @@ class DetectNode:
         cls.tf_buffer = TfBuffer()
 
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
+
+        try:
+            camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=5)
+            cls.camera_height = camera_info.height
+            cls.camera_width = camera_info.width
+        except rospy.ROSException:
+            print(colored('Camera info not found, so camera is likely not running!', 'red'))
+
 
         # Count the number of total service calls (for visualization, etc)
         cls.call_index = -1
@@ -318,10 +326,6 @@ class DetectNode:
             cv_depth_image = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
 
-            # Scale the image to 560 x 480 (TODO: Remove once using new topic)
-            cv_depth_image = cv.resize(cv_depth_image, (560, 480))
-            cv_depth_image = cv.copyMakeBorder(cv_depth_image, 0, 0, 40, 40, cv.BORDER_CONSTANT, value=0)
-
             # region Grasp Point Finding
             stalks_features: list[list[Any]] = cls.get_features(masks)
 
@@ -329,19 +333,22 @@ class DetectNode:
             if VISUALIZE:
                 cv_image = cv.cvtColor(cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'), cv.COLOR_BGR2RGB)
                 features_image = cv.cvtColor(cls.model.visualize(cv_image, output), cv.COLOR_RGB2BGR)
+                # depth_image = cv.cvtColor(cv_depth_image, cv.COLOR_GRAY2BGR)
                 for stalk in stalks_features:
                     for point in stalk:
                         try:
                             cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                            # cv.circle(depth_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
                         except Exception as e:
                             print(stalks_features, point, e)
                 cls.visualizer.publish_item('masks', features_image)
+                # cls.visualizer.publish_item('depth', depth_image)
 
             # Add the depths to the stalk features
             for i, stalk in enumerate(stalks_features):
                 for j in range(len(stalk)):
                     # Get the depth from at this point
-                    stalks_features[i][j] = Point(x=640 - stalk[j].x, y=480 - stalk[j].y,
+                    stalks_features[i][j] = Point(x=cls.camera_width - stalk[j].x, y=cls.camera_height - stalk[j].y,
                                                   z=cv_depth_image[int(stalk[j].y), int(stalk[j].x)] / DEPTH_SCALE)
 
             # Transform the points
