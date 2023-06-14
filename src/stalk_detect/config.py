@@ -33,7 +33,7 @@ MIN_Y = -0.5
 MAX_Y = 0.5
 
 # Model parameters
-MODEL_PATH = '/home/amiga/amiga_ws/src/CMU_Find_Stalk/model.pth'
+MODEL_PATH = '/home/amiga/CMU_ISU2023_ws/src/CMU_Find_Stalk/model.pth'
 SCORE_THRESHOLD = 0.8
 SCORE_THRESHOLD = 0.8
 CUDA_DEVICE_NO = 0

@@ -50,6 +50,6 @@ include_directories(
 )
 
 install(PROGRAMS
-  scripts/main
+  scripts/stalk_detect
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )
