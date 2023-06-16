@@ -10,6 +10,8 @@ GraspPointFindingOptions = Enum(
 BestStalkOptions = Enum(
     'BestStalkOptions', ['largest', 'largest_favorable', 'combine_pcls'])
 
+RUN_REALSENSE_ON_REQUEST = True
+DRIVER_COMMAND = ['roslaunch', 'realsense2_camera', 'rs_camera_pcloud.launch']
 
 # Camera parameters
 DEPTH_SCALE = 1000.0

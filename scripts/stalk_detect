@@ -3,6 +3,9 @@
 # -*- encoding: utf-8 -*-
 
 import math
+import os
+import signal
+import subprocess
 from typing import Any
 
 import cv2 as cv
@@ -18,10 +21,10 @@ from sklearn.cluster import DBSCAN
 from termcolor import colored
 
 from stalk_detect.config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC,
-                                 DEPTH_TRUNC, GRASP_POINT_ALGO, IMAGE_TOPIC,
+                                 DEPTH_TRUNC, DRIVER_COMMAND, GRASP_POINT_ALGO, IMAGE_TOPIC,
                                  INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
                                  MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
-                                 OPTIMAL_STALK_DISTANCE, VISUALIZE,
+                                 OPTIMAL_STALK_DISTANCE, RUN_REALSENSE_ON_REQUEST, VISUALIZE,
                                  BestStalkOptions, GraspPointFindingOptions, CAMERA_INFO)
 from stalk_detect.model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
@@ -55,6 +58,8 @@ class DetectNode:
 
         # Count the number of images processed in the current service call
         cls.image_index = -1
+
+        cls.driver_process = None
 
     @classmethod
     def run_detection(cls, image):
@@ -294,6 +299,16 @@ class DetectNode:
             pointcloud.points.extend(pcl.points)
 
     @classmethod
+    def run_realsense(cls):
+        cls.driver_process = subprocess.Popen(DRIVER_COMMAND, stdout=subprocess.PIPE, shell=True, preexec_fn=os.setsid)
+
+    @classmethod
+    def stop_realsense(cls):
+        if cls.driver_process is not None:
+            os.killpg(os.getpgid(cls.driver_process.pid), signal.SIGTERM)
+            cls.driver_process = None
+
+    @classmethod
     def find_stalk(cls, req: GetStalkRequest) -> GetStalkResponse:
         '''
         Process a request to find the best stalk to grab
@@ -305,6 +320,11 @@ class DetectNode:
             GetStalkResponse: The response, with a message, the best stalk found, and # frames processed
         '''
         print('Received a request for {} frames with timeout {} seconds'.format(req.num_frames, req.timeout))
+
+        # Run the realsense camera driver if needed
+        if RUN_REALSENSE_ON_REQUEST:
+            cls.run_realsense()
+
         cls.call_index += 1
         cls.image_index = -1
         start = rospy.get_rostime()
@@ -392,6 +412,7 @@ class DetectNode:
             if len(valid_masks) == 0:
                 rospy.logwarn('No stalks detected on frame {}'.format(cls.image_index))
                 frame_count += 1
+                cls.stop_realsense()
                 return
 
             if BEST_STALK_ALGO == BestStalkOptions.largest:
@@ -483,6 +504,7 @@ class DetectNode:
         #  Cluster the positions, find the best one, average it
         if len(positions) == 0:
             print(colored('No stalks detected for this service request, requesting a REPOSITION', 'red'))
+            cls.stop_realsense()
             return GetStalkResponse(success='REPOSITION')
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions
@@ -501,6 +523,8 @@ class DetectNode:
         print(colored('Found stalk at robot frame ({}, {}, {})'.format(
             best_stalk.x, best_stalk.y, best_stalk.z), 'green'))
 
+        # Stop the camera driver
+        cls.stop_realsense()
         return GetStalkResponse(success='DONE', position=best_stalk, num_frames=cls.image_index)
 
 
