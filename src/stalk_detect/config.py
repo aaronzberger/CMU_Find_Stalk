@@ -27,17 +27,14 @@ OPTIMAL_STALK_DISTANCE = 0.38  # 15 inches
 OPTIMAL_STALK_HEIGHT = 0.05  # 2 inches
 MINIMUM_MASK_AREA = 30
 
-# MIN_X = 0.01
-# MAX_X = 0.5
-MIN_X = 0.5
-MAX_X = 1.0
+MIN_X = 0.01
+MAX_X = 0.5
 MIN_Y = -0.5
 MAX_Y = 0.5
 
 # Model parameters
 MODEL_PATH = '/home/amiga/CMU_ISU2023_ws/src/CMU_Find_Stalk/model.pth'
-SCORE_THRESHOLD = 0.8
-SCORE_THRESHOLD = 0.8
+SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 
 VISUALIZE = True
@@ -50,7 +47,6 @@ CAMERA_FRAME = 'camera_link'
 BASE_FRAME = 'link_base'
 WORLD_FRAME = 'world'
 CAMERA_COLOR_FRAME = 'camera_color_frame'
-# CAMERA_ALIGNED_FRAME = 'camera_aligned_depth_to_color_frame'
 POINTCLOUD_TOPIC = '/camera/pointcloud/points'
 
 # Select the algorithms to use

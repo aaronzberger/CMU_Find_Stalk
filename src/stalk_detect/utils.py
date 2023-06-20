@@ -52,9 +52,10 @@ class Stalk:
     '''
     Helper class for storing a 3D stalk
     '''
-    def __init__(self, points: 'list[Point]'):
+    def __init__(self, points: 'list[Point]', score: float):
         self.points = points
         self.line = ransac_3d(points)
+        self.score = score
 
     def get_grasp_point(self, min_height=0):
         '''
