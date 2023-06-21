@@ -22,6 +22,8 @@ MAX_RANSAC_ITERATIONS = 1000
 # Used for RANSAC line detection for the stalks
 MAX_STALK_THICKNESS = 0.005  # Used for RANSAC Inlier threshold
 MAX_LINE_RANSAC_ITERATIONS = 1000
+GRIPPER_WIDTH = 0.15  # 6 inches
+GRIPPER_LENGTH_PAST_STALK = 0.075  # 3 inches
 
 OPTIMAL_STALK_DISTANCE = 0.20  # 8 inches
 OPTIMAL_STALK_HEIGHT = 0.05  # 2 inches
@@ -29,11 +31,11 @@ MINIMUM_MASK_AREA = 30
 
 MIN_X = 0.01
 MAX_X = 0.5
-MIN_Y = -0.5
-MAX_Y = 0.5
+MIN_Y = -100
+MAX_Y = 100
 
 # Model parameters
-MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_field_day1.pth'
+MODEL_PATH = '/home/marklee/Downloads/model_field_day1.pth'
 SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 

@@ -4,7 +4,7 @@ from geometry_msgs.msg import Point
 import warnings
 from message_filters import Subscriber
 
-from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS, OPTIMAL_STALK_HEIGHT
+from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS, MAX_X, MIN_X, MAX_Y, MIN_Y, OPTIMAL_STALK_HEIGHT
 
 
 def ransac_3d(points):
@@ -51,28 +51,46 @@ def find_xy_from_z(line, z):
 class Stalk:
     '''
     Helper class for storing a 3D stalk
+
+    A Stalk is always in world frame
     '''
-    def __init__(self, points: 'list[Point]', score: float):
+    def __init__(self, points: 'list[Point]', score: float, mask: np.ndarray):
         self.points = points
         self.line = ransac_3d(points)
         self.score = score
+        self.mask = mask
 
-    def get_grasp_point(self, min_height=0):
+        self.grasp_point = None
+        self.cam_grasp_point = None
+
+    def set_grasp_point(self, min_height=0):
         '''
         Get the point on the stalk to grasp
 
-        Returns
-            Point: The point to grasp
+        Parameters
+            min_height (float): The minimum height the stalk can touch
         '''
+        if self.grasp_point is not None:
+            return self.grasp_point
+
         # Retrieve the point above the lowest point
         goal_height = min_height + OPTIMAL_STALK_HEIGHT
 
         # Find the point on the line at this height
         x, y = find_xy_from_z(self.line, goal_height)
-        return Point(x=x, y=y, z=goal_height)
+
+        self.grasp_point = Point(x=x, y=y, z=goal_height)
 
     def is_valid(self):
         return len(self.line[0]) > 0
+    
+    def is_within_bounds(self) -> bool:
+        if self.grasp_point is None:
+            raise ValueError('Grasp point not set')
+        return self.grasp_point.x <= MAX_X and self.grasp_point.x >= MIN_X and self.grasp_point.y <= MAX_Y and self.grasp_point.y >= MIN_Y
+    
+    def set_cam_grasp_point(self, cam_grasp_point):
+        self.cam_grasp_point = cam_grasp_point
 
 
 class KillableSubscriber(Subscriber):
