@@ -10,7 +10,7 @@ GraspPointFindingOptions = Enum(
 BestStalkOptions = Enum(
     'BestStalkOptions', ['largest', 'largest_favorable', 'combine_pcls'])
 
-RUN_REALSENSE_ON_REQUEST = True
+RUN_REALSENSE_ON_REQUEST = False
 DRIVER_COMMAND = ['roslaunch', 'realsense2_camera', 'rs_camera_pcloud.launch']
 
 # Camera parameters
@@ -23,7 +23,7 @@ MAX_RANSAC_ITERATIONS = 1000
 MAX_STALK_THICKNESS = 0.005  # Used for RANSAC Inlier threshold
 MAX_LINE_RANSAC_ITERATIONS = 1000
 
-OPTIMAL_STALK_DISTANCE = 0.38  # 15 inches
+OPTIMAL_STALK_DISTANCE = 0.20  # 8 inches
 OPTIMAL_STALK_HEIGHT = 0.05  # 2 inches
 MINIMUM_MASK_AREA = 30
 
@@ -33,7 +33,7 @@ MIN_Y = -0.5
 MAX_Y = 0.5
 
 # Model parameters
-MODEL_PATH = '/home/amiga/CMU_ISU2023_ws/src/CMU_Find_Stalk/model.pth'
+MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_field_day1.pth'
 SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 

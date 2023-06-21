@@ -47,10 +47,8 @@ class DetectNode:
 
         try:
             camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=5)
-            cls.camera_height = camera_info.height
-            cls.camera_width = camera_info.width
         except rospy.ROSException:
-            print(colored('Camera info not found, so camera is likely not running!', 'red'))
+            print(colored('Camera info not found, so camera is likely not running!', 'yellow'))
 
         # Count the number of total service calls (for visualization, etc)
         cls.call_index = -1
@@ -325,6 +323,14 @@ class DetectNode:
         if RUN_REALSENSE_ON_REQUEST:
             cls.run_realsense()
 
+        try:
+            camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=2)
+            cls.camera_height = camera_info.height
+            cls.camera_width = camera_info.width
+        except rospy.ROSException:
+            print(colored('Camera info not found, so camera is likely not running!', 'red'))
+            return GetStalkResponse(success='ERROR', num_frames=0)
+
         cls.call_index += 1
         cls.image_index = -1
         start = rospy.get_rostime()
@@ -435,17 +441,27 @@ class DetectNode:
 
                 # Note that metrics like verticality of the masks should be taken care of by the segmentation
 
+                cv.imwrite('masks/{}.png'.format(cls.image_index), features_image)
+                print('IMAGE {}'.format(cls.image_index))
+
+                # NOTE: For debugging
+                ordered_left_to_right = sorted(valid_grasp_points, key=lambda p: p.y)
+                ordered_stalks = [stalks[valid_grasp_points.index(p)] for p in ordered_left_to_right]
+
                 stalk_weights = []
                 for i, mask in enumerate(valid_masks):
                     mask_pixels = np.count_nonzero(mask)
                     mask_height = np.ptp([p.z for p in stalks[i].points])
                     mask_width = np.ptp([p.x for p in stalks[i].points])
-                    distance_from_center = np.mean([p.x for p in stalks[i].points]) - 320
+                    distance_from_center = abs(np.mean([p.y for p in stalks[i].points]))
                     distance_from_camera = valid_grasp_points[i].x
 
                     weight = mask_pixels * mask_height * mask_width - \
                         distance_from_center ** 3 - (distance_from_camera - OPTIMAL_STALK_DISTANCE) ** 3
                     weight *= stalks[i].score ** 2
+
+                    print('Stalk index {} has weight {}: pixels={}, height={}, width={}, distance_from_center={}, distance_from_camera={}'.format(
+                        ordered_stalks.index(stalks[i]), weight, mask_pixels, mask_height, mask_width, distance_from_center, distance_from_camera))
 
                     stalk_weights.append(weight)
 

@@ -4,7 +4,7 @@ from geometry_msgs.msg import Point
 import warnings
 from message_filters import Subscriber
 
-from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS
+from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS, OPTIMAL_STALK_HEIGHT
 
 
 def ransac_3d(points):
@@ -64,8 +64,8 @@ class Stalk:
         Returns
             Point: The point to grasp
         '''
-        # Retrieve the point 0.05m above the lowest point
-        goal_height = min_height + 0.05
+        # Retrieve the point above the lowest point
+        goal_height = min_height + OPTIMAL_STALK_HEIGHT
 
         # Find the point on the line at this height
         x, y = find_xy_from_z(self.line, goal_height)
