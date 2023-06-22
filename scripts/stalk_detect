@@ -17,7 +17,6 @@ from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Pose2D
 from message_filters import ApproximateTimeSynchronizer
 from sensor_msgs.msg import CameraInfo, Image
-from sklearn.cluster import DBSCAN
 from termcolor import colored
 
 from stalk_detect.config import (BEST_STALK_ALGO, CAMERA_INFO, DEPTH_SCALE,
@@ -137,13 +136,26 @@ class DetectNode:
             return math.sqrt((point1.x - point2.x)**2 + (point1.y - point2.y)**2)
 
         # Only store the X and Y values of the positions
-        clustering = DBSCAN(eps=0.1, min_samples=1).fit([[position.x, position.y] for position in positions])
+        # clustering = OPTICS(eps=0.1, metric='euclidean').fit([[position.x, position.y] for position in positions])
+        THRESHOLD = 0.1
+        clustering_labels = [0]
+        for position in positions[1:]:
+            min_distance = float('inf')
+            min_cluster = 0
+            for i in range(len(clustering_labels)):
+                if distance(position, positions[i]) < min_distance:
+                    min_distance = distance(position, positions[i])
+                    min_cluster = clustering_labels[i]
+
+            clustering_labels.append(min_cluster if min_distance < THRESHOLD else max(clustering_labels) + 1)
+
+        clustering_labels = np.array(clustering_labels)
 
         # Find the cluster with the most points
-        best_cluster = max(set(clustering.labels_), key=lambda cluster: np.count_nonzero(clustering.labels_ == cluster))
+        best_cluster = max(set(clustering_labels), key=lambda cluster: np.count_nonzero(clustering_labels == cluster))
 
         # Average the points in the best cluster
-        best_cluster_points = np.array(positions)[np.nonzero(clustering.labels_ == best_cluster)]
+        best_cluster_points = np.array(positions)[np.nonzero(clustering_labels == best_cluster)]
         best_cluster_average = Point(x=np.mean([point.x for point in best_cluster_points]),
                                      y=np.mean([point.y for point in best_cluster_points]))
 
@@ -507,9 +519,11 @@ class DetectNode:
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions
         if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
-            print('determingin best stalk')
-            best_stalk = cls.determine_best_stalk(positions)
-            print('best stalk determined')
+            try:
+                best_stalk = cls.determine_best_stalk(positions)
+            except Exception:
+                print(colored('WARNING: Best stalk determination failed, so using only the first frame', 'red'))
+                best_stalk = positions[0]
 
         elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
             # Combine point clouds with the first one
