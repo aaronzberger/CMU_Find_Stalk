@@ -18,7 +18,7 @@ class TfBuffer():
     @classmethod
     def __init__(cls):
         cls.tf_buffer = tf2_ros.Buffer()
-        tf2_ros.TransformListener(cls.tf_buffer)
+        tf2_ros.TransformListener(cls.tf_buffer, queue_size=1)
 
     @classmethod
     def get_tf_buffer(cls):
@@ -31,8 +31,8 @@ class Transformer():
     '''
     def __init__(self, tf_buffer: tf2_ros.Buffer):
         # Get the transformation from camera to world
-        cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_COLOR_FRAME, rospy.Time(0)).transform
-        world_to_cam = tf_buffer.lookup_transform(CAMERA_COLOR_FRAME, WORLD_FRAME, rospy.Time(0)).transform
+        cam_to_world = tf_buffer.lookup_transform(WORLD_FRAME, CAMERA_COLOR_FRAME, rospy.Time(0), rospy.Duration.from_sec(0.5)).transform
+        world_to_cam = tf_buffer.lookup_transform(CAMERA_COLOR_FRAME, WORLD_FRAME, rospy.Time(0), rospy.Duration.from_sec(0.5)).transform
 
         # Convert the Transform msg to a Pose msg
         pose = Pose(position=Point(
@@ -82,7 +82,7 @@ class Transformer():
 
         return Point(x=transformed_pt[0], y=transformed_pt[1], z=transformed_pt[2])
 
-    def transform_world_to_cam(self, pt: Point) -> Point:
+    def transform_world_to_cam_frame(self, pt: Point) -> Point:
         '''
         Transform a point from the robot frame to the camera frame for this transform
 

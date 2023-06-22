@@ -60,9 +60,6 @@ class Stalk:
         self.score = score
         self.mask = mask
 
-        self.grasp_point = None
-        self.cam_grasp_point = None
-
     def set_grasp_point(self, min_height=0):
         '''
         Get the point on the stalk to grasp
@@ -70,8 +67,8 @@ class Stalk:
         Parameters
             min_height (float): The minimum height the stalk can touch
         '''
-        if self.grasp_point is not None:
-            return self.grasp_point
+        if 'grasp_point' in self.__dict__:
+            return
 
         # Retrieve the point above the lowest point
         goal_height = min_height + OPTIMAL_STALK_HEIGHT
@@ -83,12 +80,11 @@ class Stalk:
 
     def is_valid(self):
         return len(self.line[0]) > 0
-    
+
     def is_within_bounds(self) -> bool:
-        if self.grasp_point is None:
-            raise ValueError('Grasp point not set')
-        return self.cam_grasp_point.x <= MAX_X and self.cam_grasp_point.x >= MIN_X and self.cam_grasp_point.y <= MAX_Y and self.cam_grasp_point.y >= MIN_Y
-    
+        return self.cam_grasp_point.x <= MAX_X and self.cam_grasp_point.x >= MIN_X and \
+            self.cam_grasp_point.y <= MAX_Y and self.cam_grasp_point.y >= MIN_Y
+
     def set_cam_grasp_point(self, cam_grasp_point):
         self.cam_grasp_point = cam_grasp_point
 

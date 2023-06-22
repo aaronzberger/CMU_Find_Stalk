@@ -26,16 +26,16 @@ GRIPPER_WIDTH = 0.15  # 6 inches
 GRIPPER_LENGTH_PAST_STALK = 0.075  # 3 inches
 
 OPTIMAL_STALK_DISTANCE = 0.20  # 8 inches
-OPTIMAL_STALK_HEIGHT = 0.10 
+OPTIMAL_STALK_HEIGHT = 0.10  # 4 inches
 MINIMUM_MASK_AREA = 30
 
 MIN_X = 0.1
 MAX_X = 0.5
-MIN_Y = -0.08
+MIN_Y = -0.07
 MAX_Y = 100
 
 # Model parameters
-MODEL_PATH = '/home/marklee/Downloads/model_field_day1.pth'
+MODEL_PATH = '/home/frc/catkin_ws/src/stalk_detect/model_field_day1.pth'
 SCORE_THRESHOLD = 0.6
 CUDA_DEVICE_NO = 0
 

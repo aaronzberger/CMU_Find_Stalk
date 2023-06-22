@@ -16,16 +16,17 @@ import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Pose2D
 from message_filters import ApproximateTimeSynchronizer
-from sensor_msgs.msg import Image, CameraInfo
+from sensor_msgs.msg import CameraInfo, Image
 from sklearn.cluster import DBSCAN
 from termcolor import colored
 
-from stalk_detect.config import (BEST_STALK_ALGO, DEPTH_SCALE, DEPTH_TOPIC,
-                                 DEPTH_TRUNC, DRIVER_COMMAND, GRASP_POINT_ALGO, GRIPPER_WIDTH, IMAGE_TOPIC,
-                                 INLIER_THRESHOLD, MAX_RANSAC_ITERATIONS,
-                                 MAX_X, MAX_Y, MIN_X, MIN_Y, MINIMUM_MASK_AREA,
-                                 OPTIMAL_STALK_DISTANCE, RUN_REALSENSE_ON_REQUEST, VISUALIZE,
-                                 BestStalkOptions, GraspPointFindingOptions, CAMERA_INFO, GRIPPER_LENGTH_PAST_STALK)
+from stalk_detect.config import (BEST_STALK_ALGO, CAMERA_INFO, DEPTH_SCALE,
+                                 DEPTH_TOPIC, DEPTH_TRUNC, DRIVER_COMMAND,
+                                 GRASP_POINT_ALGO, GRIPPER_LENGTH_PAST_STALK,
+                                 GRIPPER_WIDTH, IMAGE_TOPIC, INLIER_THRESHOLD,
+                                 MAX_RANSAC_ITERATIONS, MINIMUM_MASK_AREA,
+                                 RUN_REALSENSE_ON_REQUEST, VISUALIZE,
+                                 BestStalkOptions, GraspPointFindingOptions)
 from stalk_detect.model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from stalk_detect.transforms import TfBuffer, Transformer
@@ -46,7 +47,7 @@ class DetectNode:
         cls.get_stalk_service = rospy.Service('get_stalk', GetStalk, cls.find_stalk)
 
         try:
-            camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=5)
+            rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=5)
         except rospy.ROSException:
             print(colored('Camera info not found, so camera is likely not running!', 'yellow'))
 
@@ -122,7 +123,7 @@ class DetectNode:
         return stalks_features
 
     @classmethod
-    def determine_best_stalk(cls, positions) -> Point:
+    def determine_best_stalk(cls, positions: 'list[Point]') -> Point:
         '''
         Find the best stalk from a list of positions.
 
@@ -130,47 +131,24 @@ class DetectNode:
             positions (list): A list of positions to cluster and average
 
         Returns
-            best_stalk (geometry_msgs.msg.Point): The best stalk found
+            (geometry_msgs.msg.Point): The best grasping point
         '''
-        STORING_FAC = 100000.0  # Allowing for 2 decimal places
+        def distance(point1: Point, point2: Point):
+            return math.sqrt((point1.x - point2.x)**2 + (point1.y - point2.y)**2)
 
-        original_positions = positions
-
-        # Transform to list of 2D points
-        positions = [[float(int(p.x * STORING_FAC)) + p.y, p.z] for p in positions]
-
-        # Use a custom metric to allow 3-dimensional clustering
-        def three_dim(a, b):
-            return math.sqrt((a[0] / STORING_FAC - b[0] / STORING_FAC)**2 +
-                             (a[0] % STORING_FAC - b[0] % STORING_FAC)**2 +
-                             (a[1] - b[1])**2)
-
-        clustering = DBSCAN(eps=0.1, min_samples=1, metric=three_dim).fit(positions)
+        # Only store the X and Y values of the positions
+        clustering = DBSCAN(eps=0.1, min_samples=1).fit([[position.x, position.y] for position in positions])
 
         # Find the cluster with the most points
-        best_cluster = None
-        best_cluster_size = 0
-        for cluster in set(clustering.labels_):
-            cluster_size = np.count_nonzero(clustering.labels_ == cluster)
-            if cluster_size > best_cluster_size:
-                best_cluster_size = cluster_size
-                best_cluster = cluster
+        best_cluster = max(set(clustering.labels_), key=lambda cluster: np.count_nonzero(clustering.labels_ == cluster))
 
         # Average the points in the best cluster
-        best_stalk_average = np.mean(np.array(positions)[np.nonzero(clustering.labels_ == best_cluster)], axis=0)
-        best_stalk_average = [round(best_stalk_average[0] / STORING_FAC, 2), best_stalk_average[0] % 1, best_stalk_average[1]]
+        best_cluster_points = np.array(positions)[np.nonzero(clustering.labels_ == best_cluster)]
+        best_cluster_average = Point(x=np.mean([point.x for point in best_cluster_points]),
+                                     y=np.mean([point.y for point in best_cluster_points]))
 
         # Find the point in the best cluster closest to the average
-        best_grasp_point: Point = Point(original_positions[0].x, original_positions[0].y, original_positions[0].z)
-        best_stalk_dist = float('inf')
-        for i in range(len(original_positions)):
-            if clustering.labels_[i] == best_cluster:
-                dist = math.sqrt((original_positions[i].x - best_stalk_average[0])**2 +
-                                 (original_positions[i].y - best_stalk_average[1])**2 +
-                                 (original_positions[i].z - best_stalk_average[2])**2)
-                if dist < best_stalk_dist:
-                    best_stalk_dist = dist
-                    best_grasp_point = Point(original_positions[i].x, original_positions[i].y, original_positions[i].z)
+        best_grasp_point = min(best_cluster_points, key=lambda point: distance(point, best_cluster_average))
 
         return best_grasp_point
 
@@ -196,7 +174,7 @@ class DetectNode:
         return pcd
 
     @classmethod
-    def transform_points(cls, stalks_features: 'list[list[Point]]', transformer: Transformer) -> 'list[list[Point]]':
+    def transform_points_to_world(cls, stalks_features: 'list[list[Point]]', transformer: Transformer) -> 'list[list[Point]]':
         '''
         Transform the stalk features to the ground plane (using the robot base transform)
 
@@ -318,6 +296,7 @@ class DetectNode:
             GetStalkResponse: The response, with a message, the best stalk found, and # frames processed
         '''
         print('Received a request for {} frames with timeout {} seconds'.format(req.num_frames, req.timeout))
+        cls.call_index += 1
 
         # Run the realsense camera driver if needed
         if RUN_REALSENSE_ON_REQUEST:
@@ -325,22 +304,22 @@ class DetectNode:
 
         try:
             camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=2)
+            if camera_info is None:
+                raise rospy.ROSException
             cls.camera_height = camera_info.height
             cls.camera_width = camera_info.width
         except rospy.ROSException:
             print(colored('Camera info not found, so camera is likely not running!', 'red'))
             return GetStalkResponse(success='ERROR', num_frames=0)
 
-        cls.call_index += 1
         cls.image_index = -1
         start = rospy.get_rostime()
-        frame_count: int = 0
         positions: list[Point] = []
         pcls = []
         transformers: list[Transformer] = []
 
         def image_depth_callback(image, depth_image):
-            nonlocal frame_count, positions, pcls, transformers
+            nonlocal positions, pcls, transformers
 
             transformer = Transformer(cls.tf_buffer.get_tf_buffer())
             cls.image_index += 1
@@ -357,30 +336,34 @@ class DetectNode:
             # Visualize the stalks features on the image
             if VISUALIZE:
                 cv_image = cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8')
-                features_image = cls.model.visualize(cv_image, output)
-                features_image = features_image.astype(np.uint8)
+                features_image = cls.model.visualize(cv_image, output).astype(np.uint8)
                 for stalk in stalks_features:
                     for point in stalk:
                         try:
                             cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
                         except Exception as e:
-                            print('ERROR HERE', e)
+                            print('Unable to put circle in stalk image', e)
+                            break
                 cls.visualizer.publish_item('masks', features_image)
 
             # Add the depths to the stalk features
             for i, stalk in enumerate(stalks_features):
                 for j in range(len(stalk)):
-                    # Get the depth from at this point
+                    # TODO: Use more pixels from the depth image to get a better depth (only if they are in the mask)
+
+                    # Get the depth from the depth image at this point
                     stalks_features[i][j] = Point(x=cls.camera_width - stalk[j].x, y=cls.camera_height - stalk[j].y,
                                                   z=cv_depth_image[int(stalk[j].y), int(stalk[j].x)] / DEPTH_SCALE)
 
             # Transform the points
-            stalks_features = cls.transform_points(stalks_features, transformer)
+            stalks_features = cls.transform_points_to_world(stalks_features, transformer)
 
             # Turn these features into stalks
             stalks = []
             for stalk, score, mask in zip(stalks_features, scores, masks):
                 new_stalk = Stalk(points=stalk, score=score, mask=mask)
+
+                # Ensure the stalk is valid, in case RANSAC failed
                 if new_stalk.is_valid():
                     stalks.append(new_stalk)
 
@@ -411,16 +394,15 @@ class DetectNode:
             # endregion
 
             # Set the camera grasping points
-            # TODO: Figure out a way to do this within the stalk without passing transformer
             for stalk in stalks:
-                stalk.set_cam_grasp_point(transformer.transform_world_to_cam(stalk.grasp_point))
+                stalk.set_cam_grasp_point(transformer.transform_world_to_cam_frame(stalk.grasp_point))
 
             # region Best Stalk Determination
+            # Filter out stalks that are not within the bounds of the camera
             valid_stalks: list[Stalk] = [s for s in stalks if s.is_within_bounds()]
 
             if len(valid_stalks) == 0:
-                rospy.logwarn('No stalks detected on frame {}'.format(cls.image_index))
-                frame_count += 1
+                rospy.logwarn('No valid stalks detected on frame {} ({} total stalks found)'.format(cls.image_index, len(stalks)))
                 cls.stop_realsense()
                 return
 
@@ -428,38 +410,24 @@ class DetectNode:
                 best_stalk = max(valid_stalks, key=lambda stalk: np.count_nonzero(stalk.mask))
 
             elif BEST_STALK_ALGO == BestStalkOptions.largest_favorable:
-                # We have:
-                #   mask_pixels: The number of pixels in the mask (order of x^2)
-                #   mask_height: The average height of the mask (order of x)
-                #   mask_width: The average width of the mask (order of x)
-                #   distance_from_center: The distance from the center of the image (order of x)
-                #   distance_from_camera: The distance from the camera (order of x)
-
-                # So, we do a weighting function to decide the best stalk
-                #   mask_pixels, mask_height, and mask_width can be multiplicative weights
-                #   distance_from_center and distance_from_camera can be additive weights
-
-                # Thus, we have:
-                #   weight = mask_pixels * mask_height * mask_width -
-                #       distance_from_center**3 - (distance_from_camera - optimal_distance)**3
-
-                # Note that metrics like verticality of the masks should be taken care of by the segmentation
-
-                # cv.imwrite('masks/{}.png'.format(cls.image_index), features_image)
-                # print('IMAGE {}: y coords {}'.format(cls.image_index, [s.cam_grasp_point.y for s in valid_stalks]))
+                cv.imwrite('masks/{}.png'.format(cls.image_index), features_image)
+                print('IMAGE {}: y coords {}'.format(cls.image_index, [s.cam_grasp_point.y for s in valid_stalks]))
 
                 graspable_stalks: list[Stalk] = []
 
-                # Order by grasping points instead of masks, to account for possible sporadic points (negative means right)
+                # Order by grasping point coordinates instead of masks, to account for possible sporadic points
                 ordered_right_to_left: list[Stalk] = sorted(valid_stalks, key=lambda stalk: stalk.cam_grasp_point.y)
 
-                # TODO: Create an imaginary "worst-case" stalk immediately outside the frame of the camera, to check if this first stalk is graspable
+                # Note that we do not need to worry about stalks far on the right side of the frame, since they'll be eliminated earlier
 
                 # Iterate from the right to the left, eliminating stalks that are too close for the gripper to fit between
                 graspable_stalks.append(ordered_right_to_left[0])
                 for i in range(1, len(ordered_right_to_left)):
                     is_free = True
                     for j in range(0, i):
+                        # NOTE: Temporary
+                        assert ordered_right_to_left[i].cam_grasp_point.y >= ordered_right_to_left[j].cam_grasp_point.y
+
                         if ordered_right_to_left[i].cam_grasp_point.y - ordered_right_to_left[j].cam_grasp_point.y < GRIPPER_WIDTH and \
                                 ordered_right_to_left[j].cam_grasp_point.x - ordered_right_to_left[i].cam_grasp_point.x < GRIPPER_LENGTH_PAST_STALK:
                             is_free = False
@@ -470,11 +438,11 @@ class DetectNode:
 
                 # For the remaining stalks, weight by width, confidence, and height
                 stalk_weights = []
-                for i ,stalk in enumerate(graspable_stalks):
-                    # mask_pixels = np.count_nonzero(mask)
+                for i, stalk in enumerate(graspable_stalks):
+                    # Use the z coordinate in world frame
                     mask_height = np.ptp([p.z for p in stalk.points])
 
-                    # For mask width, use the average width of the mask in the image
+                    # Use the average width of the mask in the image
                     mask = np.swapaxes(stalk.mask, 0, 1)
                     nonzero = np.nonzero(mask)
                     top_y, bottom_y = nonzero[1].min(), nonzero[1].max()
@@ -487,12 +455,13 @@ class DetectNode:
 
                     mask_width = np.mean(widths)
 
-                    # distance_from_center = abs(np.mean([p.y for p in stalks[i].points]))
-                    # distance_from_camera = valid_grasp_points[i].x
+                    # Use the y coordinate in camera frame
+                    distance_from_center = abs(stalk.cam_grasp_point.y)
 
-                    weight = (stalk.score ** 2) * mask_width * (math.sqrt(mask_height))
+                    weight = (stalk.score ** 2) * mask_width * (math.pow(mask_height, 1/3)) * (1 - distance_from_center)
 
-                    # print('Stalk index {} has weight {}, score {}, height {}, width {} y {}'.format(i, weight, stalks[i].score, mask_height, mask_width, stalk.cam_grasp_point.y))
+                    print('Stalk index {} has weight {}, score {}, height {}, width {} distance_from_center {} y {}'.format(
+                        i, weight, stalks[i].score, mask_height, mask_width, distance_from_center, stalk.cam_grasp_point.y))
 
                     stalk_weights.append(weight)
 
@@ -507,11 +476,12 @@ class DetectNode:
                 pcls.append(pointcloud)
                 transformers.append(transformer)
 
-            if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
-                positions.append(transformer.transform_world_to_cam(best_stalk.grasp_point))
-            # endregion
+            else:
+                raise ValueError('Invalid best stalk finding algorithm')
 
-            frame_count += 1
+            if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
+                positions.append(transformer.transform_world_to_cam_frame(best_stalk.grasp_point))
+            # endregion
 
         # Setup the callback for the images and depth images
         cls.sub_images = KillableSubscriber(IMAGE_TOPIC, Image)
@@ -521,7 +491,7 @@ class DetectNode:
         ts.registerCallback(image_depth_callback)
 
         # Continue until enough frames have been gathered, or the timeout has been reached
-        while frame_count < req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
+        while cls.image_index < req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
             rospy.sleep(0.1)
 
         # Unregister the callback
@@ -531,29 +501,34 @@ class DetectNode:
 
         #  Cluster the positions, find the best one, average it
         if len(positions) == 0:
-            print(colored('No stalks detected for this service request, requesting a REPOSITION', 'red'))
+            print(colored('No valid stalks detected in any frame for this service request, requesting a REPOSITION', 'red'))
             cls.stop_realsense()
-            return GetStalkResponse(success='REPOSITION')
+            return GetStalkResponse(success='REPOSITION', num_frames=cls.image_index + 1)
 
         # Option 1 or 2.1: Simply find the consensus among the individual decisions
         if BEST_STALK_ALGO in [BestStalkOptions.largest, BestStalkOptions.largest_favorable]:
+            print('determingin best stalk')
             best_stalk = cls.determine_best_stalk(positions)
+            print('best stalk determined')
 
         elif BEST_STALK_ALGO == BestStalkOptions.combine_pcls:
             # Combine point clouds with the first one
             single_pcl = cls.combine_pointclouds(pcls, transformers)
 
             # Find the grasp points for this point cloud, which is in the frame of the first point cloud
-            grasp_points = cls.get_grasp_points_by_ransac(positions, single_pcl, transformers[0])
+            grasp_points = cls.get_grasp_points_by_ransac(positions, single_pcl)
 
             best_stalk = cls.determine_best_stalk(grasp_points)
+
+        else:
+            raise ValueError('Invalid best stalk algorithm')
 
         print(colored('Found stalk at robot frame ({}, {}, {})'.format(
             best_stalk.x, best_stalk.y, best_stalk.z), 'green'))
 
         # Stop the camera driver
         cls.stop_realsense()
-        return GetStalkResponse(success='DONE', position=best_stalk, num_frames=cls.image_index)
+        return GetStalkResponse(success='DONE', position=best_stalk, num_frames=cls.image_index + 1)
 
 
 if __name__ == '__main__':
