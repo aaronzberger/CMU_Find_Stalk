@@ -364,7 +364,7 @@ class DetectNode:
                         try:
                             cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
                         except Exception as e:
-                            print(e)
+                            print('ERROR HERE', e)
                 cls.visualizer.publish_item('masks', features_image)
 
             # Add the depths to the stalk features
@@ -492,7 +492,7 @@ class DetectNode:
 
                     weight = (stalk.score ** 2) * mask_width * (math.sqrt(mask_height))
 
-                    print('Stalk index {} has weight {}, score {}, height {}, width {} y {}'.format(i, weight, stalks[i].score, mask_height, mask_width, stalk.cam_grasp_point.y))
+                    # print('Stalk index {} has weight {}, score {}, height {}, width {} y {}'.format(i, weight, stalks[i].score, mask_height, mask_width, stalk.cam_grasp_point.y))
 
                     stalk_weights.append(weight)
 

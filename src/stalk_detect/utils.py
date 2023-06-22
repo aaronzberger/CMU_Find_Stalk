@@ -87,7 +87,7 @@ class Stalk:
     def is_within_bounds(self) -> bool:
         if self.grasp_point is None:
             raise ValueError('Grasp point not set')
-        return self.grasp_point.x <= MAX_X and self.grasp_point.x >= MIN_X and self.grasp_point.y <= MAX_Y and self.grasp_point.y >= MIN_Y
+        return self.cam_grasp_point.x <= MAX_X and self.cam_grasp_point.x >= MIN_X and self.cam_grasp_point.y <= MAX_Y and self.cam_grasp_point.y >= MIN_Y
     
     def set_cam_grasp_point(self, cam_grasp_point):
         self.cam_grasp_point = cam_grasp_point
