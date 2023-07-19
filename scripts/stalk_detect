@@ -11,6 +11,7 @@ import cv2 as cv
 import numpy as np
 import open3d as o3d
 import pyransac3d as pyrsc
+from sklearn.cluster import OPTICS
 import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Vector3
@@ -161,7 +162,7 @@ class DetectNode:
             return abs(np.median([point.y for point in stalk1.cam_points]) - np.median([point.y for point in stalk2.cam_points]))
 
         # Only store the X and Y values of the positions
-        # clustering = OPTICS(eps=0.1, metric='euclidean').fit([[position.x, position.y] for position in positions])
+        # clustering = OPTICS(eps=0.1, metric=distance).fit(stalks)
         THRESHOLD = 0.1
         clustering_labels = [0]
         for stalk in stalks[1:]:
@@ -179,11 +180,13 @@ class DetectNode:
         # Find the cluster with the most points
         best_cluster = max(set(clustering_labels), key=lambda cluster: np.count_nonzero(clustering_labels == cluster))
 
-        # Choose a representative stalk from the best cluster
-        # TODO: Improve this to include distance logic
-        best_stalk = stalks[clustering_labels == best_cluster][0]
+        # Find where the best cluster is in the labels
+        best_cluster_index = np.where(clustering_labels == best_cluster)[0]
 
-        return best_stalk
+        # Get the stalks in the best cluster
+        best_stalks = [stalks[i] for i in best_cluster_index]
+
+        return best_stalks[0]
 
     @classmethod
     def get_pcl(cls, image, depth_image, transformer):
@@ -490,8 +493,9 @@ class DetectNode:
 
         try:
             best_stalk = cls.determine_best_stalk(frame_best_stalks)
-        except Exception:
-            print(colored('WARNING: Best stalk determination failed, so using only the first frame', 'red'))
+        except Exception as e:
+            print(colored('WARNING: Best stalk determination failed, so using only the first frame.', 'red'))
+            print(colored('Got error', 'white'), colored(e, 'red'))
             best_stalk = frame_best_stalks[0]
 
         print(colored('Found stalk with approximate position (X: {}, Y: {}, Z: {})'.format(
