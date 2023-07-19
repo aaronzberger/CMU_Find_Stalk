@@ -11,7 +11,6 @@ import cv2 as cv
 import numpy as np
 import open3d as o3d
 import pyransac3d as pyrsc
-from sklearn.cluster import OPTICS
 import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Vector3
@@ -25,7 +24,7 @@ from stalk_detect.config import (CAMERA_INFO, DEPTH_SCALE,
                                  GRIPPER_LENGTH_PAST_STALK, GRIPPER_WIDTH,
                                  IMAGE_TOPIC, INLIER_THRESHOLD,
                                  MAX_RANSAC_ITERATIONS, MINIMUM_MASK_AREA,
-                                 RUN_REALSENSE_ON_REQUEST, VISUALIZE)
+                                 RUN_REALSENSE_ON_REQUEST, SERVICE_REQUEST_END_BUFFER_TIME, VISUALIZE)
 from stalk_detect.model import MaskRCNN
 from stalk_detect.srv import GetStalk, GetStalkRequest, GetStalkResponse
 from stalk_detect.msg import stalk as stalk_msg, line as line_msg
@@ -463,8 +462,7 @@ class DetectNode:
                 stalk_weights.append(weight)
 
             # endregion
-
-                best_stalk = graspable_stalks[np.argmax(stalk_weights)]
+            best_stalk = graspable_stalks[np.argmax(stalk_weights)]
 
             # NOTE: This actually cannot be unbound, since only one valid stalk will always be graspable
             frame_best_stalks.append(best_stalk)  # type: ignore
@@ -477,7 +475,7 @@ class DetectNode:
         ts.registerCallback(image_depth_callback)
 
         # Continue until enough frames have been gathered, or the timeout has been reached
-        while cls.image_index < req.num_frames and (rospy.get_rostime() - start).to_sec() < req.timeout:
+        while cls.image_index < req.num_frames and (rospy.get_rostime() - start).to_sec() + SERVICE_REQUEST_END_BUFFER_TIME < req.timeout:
             rospy.sleep(0.1)
 
         # Unregister the callback

@@ -8,18 +8,18 @@ INLIER_THRESHOLD = 0.025
 MAX_RANSAC_ITERATIONS = 1000
 
 # Used for RANSAC line detection for the stalks
-MAX_STALK_THICKNESS = 0.005  # Used for RANSAC Inlier threshold
 MAX_LINE_RANSAC_ITERATIONS = 1000
 GRIPPER_WIDTH = 0.15  # 6 inches
 GRIPPER_LENGTH_PAST_STALK = 0.075  # 3 inches
 
-OPTIMAL_STALK_DISTANCE = 0.20  # 8 inches
-OPTIMAL_STALK_HEIGHT = 0.10  # 4 inches
 MINIMUM_MASK_AREA = 30
 
 # Distance in pixels between each feature point in a stalk
 # Measured in pixels (and not meters) since feature point accuracy relies on image and depth image resolution
 FEATURE_POINT_PIXEL_OFFSET = 10
+
+# Time between when the last possible frame can be received and the request needs to finish
+SERVICE_REQUEST_END_BUFFER_TIME = 0.1
 
 MIN_X = 0.1
 MAX_X = 0.5

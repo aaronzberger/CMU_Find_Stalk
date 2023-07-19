@@ -3,17 +3,19 @@ import pyransac3d as pyrsc
 from geometry_msgs.msg import Point
 import warnings
 from message_filters import Subscriber
+from skspatial.objects import Line as Line3D
 
 from stalk_detect.config import INLIER_THRESHOLD, MAX_LINE_RANSAC_ITERATIONS, MAX_X, MIN_X, MAX_Y, MIN_Y
 
 
 # Line object, with a slope and intercept
 class Line:
-    def __init__(self, slope, intercept):
+    def __init__(self, slope, intercept, points=[]):
         if len(slope) != 3 or len(intercept) != 3:
             raise ValueError('Slope and intercept must be of length 3')
         self.slope = slope / np.linalg.norm(slope)
         self.intercept = intercept
+        self.points = points
 
 
 def ransac_3d(points):
@@ -24,7 +26,7 @@ def ransac_3d(points):
         points (list[Point]): The points to perform RANSAC on
 
     Returns
-        best_line (np.ndarray[Point]): The best line found
+        Line: The best line found
     '''
     # Convert np.ndarray[Point] to np.array (N, 3)
     points = np.array([[p.x, p.y, p.z] for p in points])
@@ -36,9 +38,32 @@ def ransac_3d(points):
         if len(w) > 0 and not issubclass(w[-1].category, RuntimeWarning):
             warnings.warn(w[-1].message, w[-1].category)
 
-    line = Line(line[0], line[1])
+    # line[2] is a (1, M) array of inlier indices
+    inliers = points[line[2]]
 
-    # TODO: Use refinement using least squares
+    return Line(line[0], line[1], points=inliers)
+
+
+def fit_line(points):
+    '''
+    Perform RANSAC line detection, then refine the line using least squares
+
+    Parameters
+        points (list[Point]): The points to perform RANSAC on
+
+    Returns
+        Line: The best line found
+    '''
+    line: Line = ransac_3d(points)
+
+    if len(line.points) == 0:
+        raise ValueError("No line found")
+
+    # # Refine using least squares
+    line_fit = Line3D.best_fit(line.points)
+
+    line.slope = line_fit.direction
+    line.intercept = line_fit.point
 
     return line
 
@@ -71,7 +96,7 @@ class Stalk:
         self.cam_points = cam_points
         self.valid = True
         try:
-            self.line = ransac_3d(points)
+            self.line = fit_line(points)
         except ValueError:
             self.valid = False
         self.score = score
