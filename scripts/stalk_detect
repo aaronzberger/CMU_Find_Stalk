@@ -6,7 +6,6 @@ import math
 import os
 import signal
 import subprocess
-from typing import Any
 
 import cv2 as cv
 import numpy as np
@@ -14,15 +13,16 @@ import open3d as o3d
 import pyransac3d as pyrsc
 import rospy
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Point, Pose2D
+from geometry_msgs.msg import Point
 from message_filters import ApproximateTimeSynchronizer
 from sensor_msgs.msg import CameraInfo, Image
 from termcolor import colored
 
 from stalk_detect.config import (BEST_STALK_ALGO, CAMERA_INFO, DEPTH_SCALE,
                                  DEPTH_TOPIC, DEPTH_TRUNC, DRIVER_COMMAND,
-                                 GRASP_POINT_ALGO, GRIPPER_LENGTH_PAST_STALK,
-                                 GRIPPER_WIDTH, IMAGE_TOPIC, INLIER_THRESHOLD,
+                                 FEATURE_POINT_PIXEL_OFFSET, GRASP_POINT_ALGO,
+                                 GRIPPER_LENGTH_PAST_STALK, GRIPPER_WIDTH,
+                                 IMAGE_TOPIC, INLIER_THRESHOLD,
                                  MAX_RANSAC_ITERATIONS, MINIMUM_MASK_AREA,
                                  RUN_REALSENSE_ON_REQUEST, VISUALIZE,
                                  BestStalkOptions, GraspPointFindingOptions)
@@ -73,6 +73,8 @@ class DetectNode:
         '''
         cv_image = cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8')
 
+        cv.imwrite('input_image.png', cv_image)
+
         # Run the model
         scores, bboxes, masks, output = cls.model.forward(cv_image)
         masks = masks.astype(np.uint8) * 255
@@ -80,7 +82,7 @@ class DetectNode:
         return masks, output, scores
 
     @classmethod
-    def get_features(cls, masks) -> 'list[list[Pose2D]]':
+    def get_features(cls, masks, depth_image) -> 'list[list[Point]]':
         '''
         Get the center points going up each stalk
 
@@ -88,7 +90,7 @@ class DetectNode:
             masks (np.ndarray): The masks of the detected stalks
 
         Returns
-            stalks_features (list[list[Pose2D]]): The center points of the stalks, for each stalk
+            stalks_features (list[list[Point]]): The center points and depths of the stalks, for each stalk
         '''
         # Get the center points of the stalks
         stalks_features = []
@@ -102,20 +104,39 @@ class DetectNode:
             nonzero = np.nonzero(mask)
 
             # Get the top and bottom height values of the stalk
-            top_y, bottom_y = nonzero[1].min(), nonzero[1].max()
+            # NOTE: bottom_y is the top of the mask in the image using openCV indexing
+            bottom_y, top_y = nonzero[1].min(), nonzero[1].max()
 
-            stalk_features = [Pose2D(x=np.nonzero(mask[:, top_y])[0].mean(), y=top_y)]
+            # Sample the depth from the top mask slice of the stalk
+            depth_sampling_pixels = np.nonzero(mask[:, int(bottom_y): int(bottom_y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
 
-            # For every 10 pixels, get the center point
-            for y in range(top_y, bottom_y, 10):
+            # Only take nonzero values where y is within the top and bottom y values
+            depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
+
+            # Invert the x and y values to "undo" the openCV indexing
+            stalk_features = [Point(x=cls.camera_width - np.median(np.nonzero(mask[:, top_y])[0]),
+                                    y=cls.camera_height - top_y, z=np.median(depths) / DEPTH_SCALE)]
+
+            # For every FEATURE_POINT_PIXEL_OFFSET pixels, get the center point
+            for y in range(bottom_y, top_y, FEATURE_POINT_PIXEL_OFFSET):
                 # Find the average x value for nonzero pixels at this y value
                 y_values = np.nonzero(mask[:, y])[0]
 
                 # If there are no y pixels, simply skip this value
                 if len(y_values) > 0:
-                    stalk_features.append(Pose2D(x=y_values.mean(), y=y))
+                    # Sample the depth from this mask slice of the stalk
+                    depth_sampling_pixels = np.nonzero(mask[:, int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
 
-            stalk_features.append(Pose2D(x=np.nonzero(mask[:, bottom_y])[0].mean(), y=bottom_y))
+                    if len(depth_sampling_pixels[0]) > 0:
+                        depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
+                        stalk_features.append(Point(x=cls.camera_width - np.median(y_values),
+                                                    y=cls.camera_height - y, z=np.median(depths) / DEPTH_SCALE))
+
+            # Sample the depth from the bottom mask slice of the stalk
+            depth_sampling_pixels = np.nonzero(mask[:, int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(top_y)])
+            depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
+            stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, bottom_y])[0]),
+                                        y=cls.camera_height - bottom_y, z=np.median(depths) / DEPTH_SCALE))
 
             stalks_features.append(stalk_features)
 
@@ -342,8 +363,12 @@ class DetectNode:
             cv_depth_image = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
 
+            print('got masks', len(masks))
+
             # region Grasp Point Finding
-            stalks_features: list[list[Any]] = cls.get_features(masks)
+            stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image)
+
+            print('got features')
 
             # Visualize the stalks features on the image
             if VISUALIZE:
@@ -352,23 +377,16 @@ class DetectNode:
                 for stalk in stalks_features:
                     for point in stalk:
                         try:
-                            cv.circle(features_image, (int(point.x), int(point.y)), 2, (0, 0, 255), -1)
+                            cv.circle(features_image, (cls.camera_width - int(point.x), cls.camera_height - int(point.y)), 2, (0, 0, 255), -1)
                         except Exception as e:
                             print('Unable to put circle in stalk image', e)
                             break
                 cls.visualizer.publish_item('masks', features_image)
 
-            # Add the depths to the stalk features
-            for i, stalk in enumerate(stalks_features):
-                for j in range(len(stalk)):
-                    # TODO: Use more pixels from the depth image to get a better depth (only if they are in the mask)
-
-                    # Get the depth from the depth image at this point
-                    stalks_features[i][j] = Point(x=cls.camera_width - stalk[j].x, y=cls.camera_height - stalk[j].y,
-                                                  z=cv_depth_image[int(stalk[j].y), int(stalk[j].x)] / DEPTH_SCALE)
-
             # Transform the points
             stalks_features = cls.transform_points_to_world(stalks_features, transformer)
+
+            print('transformed to world')
 
             # Turn these features into stalks
             stalks = []
@@ -378,12 +396,6 @@ class DetectNode:
                 # Ensure the stalk is valid, in case RANSAC failed
                 if new_stalk.is_valid():
                     stalks.append(new_stalk)
-
-            if VISUALIZE:
-                cls.visualizer.new_frame()
-                cls.visualizer.publish_item('features', stalks_features, marker_color=[255, 0, 0])
-                for stalk in stalks:
-                    cls.visualizer.publish_item('stalk_lines', stalk, marker_color=[255, 255, 0], marker_size=0.01)
 
             if GRASP_POINT_ALGO == GraspPointFindingOptions.mask_only:
                 for stalk in stalks:
@@ -418,12 +430,17 @@ class DetectNode:
                 cls.stop_realsense()
                 return
 
+            if VISUALIZE:
+                cls.visualizer.new_frame()
+                cls.visualizer.publish_item('features', stalks_features, marker_color=[255, 0, 0])
+                for stalk in stalks:
+                    cls.visualizer.publish_item('stalk_lines', stalk, marker_color=[255, 255, 0], marker_size=0.01)
+
             if BEST_STALK_ALGO == BestStalkOptions.largest:
                 best_stalk = max(valid_stalks, key=lambda stalk: np.count_nonzero(stalk.mask))
 
             elif BEST_STALK_ALGO == BestStalkOptions.largest_favorable:
                 cv.imwrite('masks/{}.png'.format(cls.image_index), features_image)
-                print('IMAGE {}: y coords {}'.format(cls.image_index, [s.cam_grasp_point.y for s in valid_stalks]))
 
                 graspable_stalks: list[Stalk] = []
 
@@ -472,8 +489,8 @@ class DetectNode:
 
                     weight = (stalk.score ** 2) * mask_width * (math.pow(mask_height, 1/3)) * (1 - distance_from_center)
 
-                    print('Stalk index {} has weight {}, score {}, height {}, width {} distance_from_center {} y {}'.format(
-                        i, weight, stalks[i].score, mask_height, mask_width, distance_from_center, stalk.cam_grasp_point.y))
+                    # print('Stalk index {} has weight {}, score {}, height {}, width {} distance_from_center {} y {}'.format(
+                    #     i, weight, stalks[i].score, mask_height, mask_width, distance_from_center, stalk.cam_grasp_point.y))
 
                     stalk_weights.append(weight)
 
@@ -537,7 +554,7 @@ class DetectNode:
         else:
             raise ValueError('Invalid best stalk algorithm')
 
-        print(colored('Found stalk at robot frame ({}, {}, {})'.format(
+        print(colored('Found stalk at camera frame ({}, {}, {})'.format(
             best_stalk.x, best_stalk.y, best_stalk.z), 'green'))
 
         # Stop the camera driver

@@ -160,6 +160,7 @@ class Visualizer:
                 msg = cls.data_to_ros_type[type(item)][1](item)
             except Exception as e:
                 print(colored('Error converting data to ROS message: {}'.format(e), 'red'))
+                print(colored('Data type: {}, data: {}, topic: {}'.format(type(item), item, topic), 'yellow'))
                 return
         else:
             msg = item

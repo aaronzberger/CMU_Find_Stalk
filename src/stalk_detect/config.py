@@ -29,6 +29,10 @@ OPTIMAL_STALK_DISTANCE = 0.20  # 8 inches
 OPTIMAL_STALK_HEIGHT = 0.10  # 4 inches
 MINIMUM_MASK_AREA = 30
 
+# Distance in pixels between each feature point in a stalk
+# Measured in pixels (and not meters) since feature point accuracy relies on image and depth image resolution
+FEATURE_POINT_PIXEL_OFFSET = 10
+
 MIN_X = 0.1
 MAX_X = 0.5
 MIN_Y = -0.07

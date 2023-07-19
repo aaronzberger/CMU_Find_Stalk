@@ -67,9 +67,12 @@ class MaskRCNN:
             np.ndarray: visualized results
         '''
 
+        metadata = MetadataCatalog.get('empty')
+        metadata.thing_colors = [(255, 0, 0)]
+
         v = Visualizer(input_image[:, :, ::-1],
                        metadata=MetadataCatalog.get('empty'),
-                       instance_mode=ColorMode.IMAGE_BW)  # remove the colors of unsegmented pixels
+                       instance_mode=ColorMode.SEGMENTATION)  # remove the colors of unsegmented pixels
 
         v = v.draw_instance_predictions(output['instances'].to('cpu'))
 
