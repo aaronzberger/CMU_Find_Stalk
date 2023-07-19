@@ -1,15 +1,3 @@
-from enum import Enum
-
-# Currently, the only option for stalk detection is Mask R-CNN
-
-
-GraspPointFindingOptions = Enum(
-    'GraspPointFindingOptions',
-    ['mask_only', 'mask_projection', 'ransac_ground_plane', 'segment_ground_plane'])
-
-BestStalkOptions = Enum(
-    'BestStalkOptions', ['largest', 'largest_favorable', 'combine_pcls'])
-
 RUN_REALSENSE_ON_REQUEST = False
 DRIVER_COMMAND = ['roslaunch', 'realsense2_camera', 'rs_camera_pcloud.launch']
 
@@ -54,7 +42,3 @@ BASE_FRAME = 'link_base'
 WORLD_FRAME = 'world'
 CAMERA_COLOR_FRAME = 'camera_color_frame'
 POINTCLOUD_TOPIC = '/camera/pointcloud/points'
-
-# Select the algorithms to use
-GRASP_POINT_ALGO = GraspPointFindingOptions.mask_projection
-BEST_STALK_ALGO = BestStalkOptions.largest_favorable

@@ -16,6 +16,13 @@ catkin_python_setup()
 ## Declare ROS messages, services and actions ##
 ################################################
 
+## Generate messages in the 'msg' folder
+add_message_files(
+  FILES
+  line.msg
+  stalk.msg
+)
+
 ## Generate services in the 'srv' folder
 add_service_files(
   FILES

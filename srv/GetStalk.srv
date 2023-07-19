@@ -2,7 +2,6 @@ uint32 num_frames
 float64 timeout
 ---
 string success
-geometry_msgs/Point position
-geometry_msgs/Point margins
+stalk_detect/stalk stalk
 float64 confidence
 uint16 num_frames

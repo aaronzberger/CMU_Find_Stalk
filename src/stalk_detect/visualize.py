@@ -31,7 +31,7 @@ class Visualizer:
         # Map the data type to the ROS message type and conversion function
         cls.data_to_ros_type = {
             np.ndarray: (Image, lambda img: CvBridge().cv2_to_imgmsg(img, encoding='bgr8')),
-            Point: (Marker, lambda pt: cls._point_to_marker(pt, (255, 0, 0), cls.marker_counter, 0.01)),
+            Point: (Marker, lambda pt: cls._point_to_marker(pt, (255, 0, 0), cls.marker_counter, 0.007)),
             o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id='world', stamp=rospy.Time.now())),
             list: (MarkerArray, lambda lst: cls.list_to_marker_array(lst)),
             Stalk: (Marker, lambda pts: cls.stalk_to_viz(pts))

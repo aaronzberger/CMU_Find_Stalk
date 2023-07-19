@@ -48,8 +48,8 @@ class Transformer():
         self.E_world_to_cam = tf_conversions.toMatrix(tf_conversions.fromMsg(pose))
 
         # Get the camera intrinsics
-        camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=5)
-        depth_info = rospy.wait_for_message(DEPTH_CAMERA_INFO, CameraInfo, timeout=5)
+        camera_info = rospy.wait_for_message(CAMERA_INFO, CameraInfo, timeout=0.5)
+        depth_info = rospy.wait_for_message(DEPTH_CAMERA_INFO, CameraInfo, timeout=0.5)
 
         if camera_info is None or depth_info is None:
             raise RuntimeError(f'Failed to get camera and depth camera info on topics {camera_info} and {depth_info}')
