@@ -11,3 +11,4 @@ shims
 **/__pycache__
 viz/*
 model_final.pth
+masks/*

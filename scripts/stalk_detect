@@ -73,7 +73,7 @@ class DetectNode:
         '''
         cv_image = cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8')
 
-        cv.imwrite('input_image.png', cv_image)
+        cv.imwrite('masks/input_{}-{}.png'.format(cls.call_index, cls.image_index), cv_image)
 
         # Run the model
         scores, bboxes, masks, output = cls.model.forward(cv_image)
@@ -379,7 +379,7 @@ class DetectNode:
                             print('Unable to put circle in stalk image', e)
                             break
                 cls.visualizer.publish_item('masks', features_image)
-                cv.imwrite('masks/{}-{}.png'.format(cls.call_index, cls.image_index), features_image)
+                cv.imwrite('masks/output{}-{}.png'.format(cls.call_index, cls.image_index), features_image)
 
             # Transform the points
             stalks_features = cls.transform_points_to_world(stalks_features, transformer)
