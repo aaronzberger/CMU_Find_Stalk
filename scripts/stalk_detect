@@ -6,6 +6,7 @@ import math
 import os
 import signal
 import subprocess
+from typing import Optional
 
 import cv2 as cv
 import numpy as np
@@ -82,7 +83,7 @@ class DetectNode:
         return masks, output, scores
 
     @classmethod
-    def get_features(cls, masks, depth_image, image) -> 'list[list[Point]]':
+    def get_features(cls, masks, depth_image) -> 'list[list[Point]]':
         '''
         Get the center points going up each stalk
 
@@ -92,6 +93,34 @@ class DetectNode:
         Returns
             stalks_features (list[list[Point]]): The center points and depths of the stalks, for each stalk
         '''
+        def sample_from_range(start_y, stop_y) -> Optional[float]:
+            '''
+            Sample the depth from the given range of y values
+
+            Parameters
+                start_y (int): The start y value
+                stop_y (int): The stop y value
+
+            Returns
+                float or None: The median depth of the sampled pixels, or None if no pixels were sampled
+            '''
+            nonlocal mask, depth_image
+            sampling_pixels = np.nonzero(mask[:, start_y: stop_y])
+            sampling_pixels = (sampling_pixels[0], sampling_pixels[1] + start_y)
+
+            if len(sampling_pixels[0]) == 0:
+                return None
+
+            depths = depth_image[sampling_pixels[1], sampling_pixels[0]]
+
+            median = np.median(depths) / DEPTH_SCALE
+
+            if median == 0:
+                print('Sampled from range {} to {} but got median depth of 0'.format(start_y, stop_y))
+                return None
+
+            return median
+
         # Get the center points of the stalks
         stalks_features = []
         for mask in masks:
@@ -107,23 +136,14 @@ class DetectNode:
             # NOTE: bottom_y is the top of the mask in the image using openCV indexing
             bottom_y, top_y = nonzero[1].min(), nonzero[1].max()
 
-            # Sample the depth from the top mask slice of the stalk
-            depth_sampling_pixels = np.nonzero(mask[:, int(bottom_y): int(bottom_y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
-            depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + bottom_y)
+            depth = sample_from_range(int(bottom_y), int(bottom_y + (FEATURE_POINT_PIXEL_OFFSET / 2)))
 
-            # Generate a random color
-            colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
-
-            # draw these pixels on the image
-            for i in range(len(depth_sampling_pixels[0])):
-                image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
-
-            # Only take nonzero values where y is within the top and bottom y values
-            depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
+            stalk_features = []
 
             # Invert the x and y values to "undo" the openCV indexing
-            stalk_features = [Point(x=cls.camera_width - np.median(np.nonzero(mask[:, top_y])[0]),
-                                    y=cls.camera_height - top_y, z=np.median(depths) / DEPTH_SCALE)]
+            if depth is not None:
+                stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, top_y])[0]),
+                                        y=cls.camera_height - top_y, z=depth))
 
             # For every FEATURE_POINT_PIXEL_OFFSET pixels, get the center point
             for y in range(bottom_y, top_y, FEATURE_POINT_PIXEL_OFFSET):
@@ -132,37 +152,24 @@ class DetectNode:
 
                 # If there are no y pixels, simply skip this value
                 if len(y_values) > 0:
-                    # Sample the depth from this mask slice of the stalk
-                    depth_sampling_pixels = np.nonzero(mask[:, int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
-                    depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)))
+                    depth = sample_from_range(int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)), int(y + (FEATURE_POINT_PIXEL_OFFSET / 2)))
 
-                    colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
-                    # draw these pixels on the image
-                    for i in range(len(depth_sampling_pixels[0])):
-                        image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
-
-                    if len(depth_sampling_pixels[0]) > 0:
-                        depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
+                    if depth is not None:
                         stalk_features.append(Point(x=cls.camera_width - np.median(y_values),
-                                                    y=cls.camera_height - y, z=np.median(depths) / DEPTH_SCALE))
+                                                    y=cls.camera_height - y, z=depth))
 
             # Sample the depth from the bottom mask slice of the stalk
-            depth_sampling_pixels = np.nonzero(mask[:, int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(top_y)])
-            depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)))
+            depth = sample_from_range(int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)), int(top_y))
 
-            # draw these pixels on the image
-            colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
-            for i in range(len(depth_sampling_pixels[0])):
-                image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
+            if depth is not None:
+                stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, bottom_y])[0]),
+                                            y=cls.camera_height - bottom_y, z=depth))
 
-            depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
-            stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, bottom_y])[0]),
-                                        y=cls.camera_height - bottom_y, z=np.median(depths) / DEPTH_SCALE))
+            if len(stalk_features) == 0:
+                print('No stalk features found for stalk with mask area {}'.format(np.count_nonzero(mask)))
+                continue
 
             stalks_features.append(stalk_features)
-
-        # Save the image
-        cv.imwrite('masks/sampling{}-{}.png'.format(cls.call_index, cls.image_index), image)
 
         return stalks_features
 
@@ -390,7 +397,7 @@ class DetectNode:
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
 
             # region Feature extraction
-            stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image, cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'))
+            stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image)
 
             # Visualize the stalks features on the image
             if VISUALIZE:

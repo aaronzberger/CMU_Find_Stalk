@@ -100,7 +100,7 @@ class Transformer():
         x *= pt.z
         y *= pt.z
 
-        return Point(x=x, y=y, z=pt.z)
+        return Point(x=pt.z, y=x, z=y)
 
     def transform_world_to_cam_frame(self, pt: Point) -> Point:
         '''
