@@ -4,6 +4,7 @@ import rospy
 from cv_bridge import CvBridge
 from geometry_msgs.msg import Point, Pose, Quaternion
 from sensor_msgs.msg import Image, PointCloud2
+from stalk_detect.config import CAMERA_COLOR_FRAME
 from std_msgs.msg import ColorRGBA, Header
 from termcolor import colored
 from visualization_msgs.msg import Marker, MarkerArray
@@ -32,7 +33,7 @@ class Visualizer:
         cls.data_to_ros_type = {
             np.ndarray: (Image, lambda img: CvBridge().cv2_to_imgmsg(img, encoding='bgr8')),
             Point: (Marker, lambda pt: cls._point_to_marker(pt, (255, 0, 0), cls.marker_counter, 0.007)),
-            o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id='world', stamp=rospy.Time.now())),
+            o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id=CAMERA_COLOR_FRAME, stamp=rospy.Time.now())),
             list: (MarkerArray, lambda lst: cls.list_to_marker_array(lst)),
             Stalk: (Marker, lambda pts: cls.stalk_to_viz(pts))
         }
@@ -61,7 +62,7 @@ class Visualizer:
         bottom_point = Point(x=bottom_x, y=bottom_y, z=0)
 
         marker = Marker()
-        marker.header.frame_id = 'world'
+        marker.header.frame_id = CAMERA_COLOR_FRAME
         marker.header.stamp = rospy.Time.now()
         marker.ns = 'points_to_line'
         marker.id = cls.marker_counter
@@ -108,7 +109,7 @@ class Visualizer:
         Returns
             visualization_msgs.msg.Marker: the marker
         '''
-        header = Header(frame_id='world', stamp=rospy.Time.now())
+        header = Header(frame_id=CAMERA_COLOR_FRAME, stamp=rospy.Time.now())
 
         return Marker(header=header, id=id, pose=Pose(position=point, orientation=Quaternion(1, 0, 0, 0)),
                       lifetime=rospy.Duration(0), type=Marker.SPHERE, scale=Point(x=size, y=size, z=size),
@@ -164,7 +165,7 @@ class Visualizer:
                 return
         else:
             msg = item
-            msg.header = Header(frame_id='world', stamp=rospy.Time.now())
+            msg.header = Header(frame_id=CAMERA_COLOR_FRAME, stamp=rospy.Time.now())
 
         # Delete all old markers on this topic
         if cls.publishers[topic][1] == Marker:

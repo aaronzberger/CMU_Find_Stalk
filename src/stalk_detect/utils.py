@@ -89,11 +89,10 @@ class Stalk:
     '''
     Helper class for storing a 3D stalk
 
-    A Stalk is always in world frame
+    A Stalk is always in camera frame
     '''
-    def __init__(self, points: 'list[Point]', cam_points: 'list[Point]', score: float, mask: np.ndarray):
+    def __init__(self, points: 'list[Point]', score: float, mask: np.ndarray):
         self.points = points
-        self.cam_points = cam_points
         self.valid = True
         try:
             self.line = fit_line(points)

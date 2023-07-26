@@ -82,7 +82,7 @@ class DetectNode:
         return masks, output, scores
 
     @classmethod
-    def get_features(cls, masks, depth_image) -> 'list[list[Point]]':
+    def get_features(cls, masks, depth_image, image) -> 'list[list[Point]]':
         '''
         Get the center points going up each stalk
 
@@ -109,6 +109,14 @@ class DetectNode:
 
             # Sample the depth from the top mask slice of the stalk
             depth_sampling_pixels = np.nonzero(mask[:, int(bottom_y): int(bottom_y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
+            depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + bottom_y)
+
+            # Generate a random color
+            colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
+
+            # draw these pixels on the image
+            for i in range(len(depth_sampling_pixels[0])):
+                image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
 
             # Only take nonzero values where y is within the top and bottom y values
             depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
@@ -126,6 +134,12 @@ class DetectNode:
                 if len(y_values) > 0:
                     # Sample the depth from this mask slice of the stalk
                     depth_sampling_pixels = np.nonzero(mask[:, int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(y + (FEATURE_POINT_PIXEL_OFFSET / 2))])
+                    depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + int(y - (FEATURE_POINT_PIXEL_OFFSET / 2)))
+
+                    colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
+                    # draw these pixels on the image
+                    for i in range(len(depth_sampling_pixels[0])):
+                        image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
 
                     if len(depth_sampling_pixels[0]) > 0:
                         depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
@@ -134,11 +148,21 @@ class DetectNode:
 
             # Sample the depth from the bottom mask slice of the stalk
             depth_sampling_pixels = np.nonzero(mask[:, int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)): int(top_y)])
+            depth_sampling_pixels = (depth_sampling_pixels[0], depth_sampling_pixels[1] + int(top_y - (FEATURE_POINT_PIXEL_OFFSET / 2)))
+
+            # draw these pixels on the image
+            colormap = np.random.randint(0, 256, (1, 3), dtype=np.uint8)
+            for i in range(len(depth_sampling_pixels[0])):
+                image[depth_sampling_pixels[1][i], depth_sampling_pixels[0][i]] = colormap
+
             depths = depth_image[depth_sampling_pixels[1], depth_sampling_pixels[0]]
             stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, bottom_y])[0]),
                                         y=cls.camera_height - bottom_y, z=np.median(depths) / DEPTH_SCALE))
 
             stalks_features.append(stalk_features)
+
+        # Save the image
+        cv.imwrite('masks/sampling{}-{}.png'.format(cls.call_index, cls.image_index), image)
 
         return stalks_features
 
@@ -158,7 +182,7 @@ class DetectNode:
 
         def distance(stalk1: Stalk, stalk2: Stalk):
             # For now, the distance between stalks is simply the y offset between the median y values of the stalks
-            return abs(np.median([point.y for point in stalk1.cam_points]) - np.median([point.y for point in stalk2.cam_points]))
+            return abs(np.median([point.y for point in stalk1.points]) - np.median([point.y for point in stalk2.points]))
 
         # Only store the X and Y values of the positions
         # clustering = OPTICS(eps=0.1, metric=distance).fit(stalks)
@@ -222,7 +246,7 @@ class DetectNode:
         '''
         transformed_features = []
         for stalk in stalks_features:
-            transformed_features.append([transformer.transform_cam_to_world(p) for p in stalk])
+            transformed_features.append([transformer.transform_instrinsic(p) for p in stalk])
 
         return transformed_features
 
@@ -356,6 +380,7 @@ class DetectNode:
             nonlocal frame_best_stalks, transformers
 
             transformer = Transformer(cls.tf_buffer.get_tf_buffer())
+
             cls.image_index += 1
 
             # Run the model
@@ -365,7 +390,7 @@ class DetectNode:
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
 
             # region Feature extraction
-            stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image)
+            stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image, cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8'))
 
             # Visualize the stalks features on the image
             if VISUALIZE:
@@ -381,14 +406,12 @@ class DetectNode:
                 cls.visualizer.publish_item('masks', features_image)
                 cv.imwrite('masks/output{}-{}.png'.format(cls.call_index, cls.image_index), features_image)
 
-            # Transform the points
             stalks_features = cls.transform_points_to_world(stalks_features, transformer)
 
             # Turn these features into stalks
             stalks = []
             for stalk, score, mask in zip(stalks_features, scores, masks):
-                cam_pts = [transformer.transform_world_to_cam_frame(p) for p in stalk]
-                new_stalk = Stalk(points=stalk, cam_points=cam_pts, score=score, mask=mask)
+                new_stalk = Stalk(points=stalk, score=score, mask=mask)
 
                 # Ensure the stalk is valid, in case RANSAC failed
                 if new_stalk.is_valid():
@@ -401,6 +424,7 @@ class DetectNode:
 
             if len(valid_stalks) == 0:
                 rospy.logwarn('No valid stalks detected on frame {} ({} total stalks found)'.format(cls.image_index, len(stalks)))
+                print('Point on each stalk is', [stalk.points for stalk in stalks])
                 cls.stop_realsense()
                 return
 
@@ -414,7 +438,7 @@ class DetectNode:
 
             # Order by grasping point coordinates instead of masks, to account for possible sporadic points
             # TODO: Wasn't reverse before but reverse seems right (left to right goes positive but we want right to left)
-            ordered_right_to_left: list[Stalk] = sorted(valid_stalks, key=lambda stalk: np.median([p.y for p in stalk.cam_points]), reverse=True)
+            ordered_right_to_left: list[Stalk] = sorted(valid_stalks, key=lambda stalk: np.median([p.y for p in stalk.points]), reverse=True)
 
             # Iterate from the right to the left, eliminating stalks that are too close for the gripper to fit between
             graspable_stalks.append(ordered_right_to_left[0])
@@ -424,8 +448,8 @@ class DetectNode:
                     # NOTE: Temporary assertion
                     # assert ordered_right_to_left[i].horizontal_pos >= ordered_right_to_left[j].horizontal_pos
 
-                    if min([pt.y for pt in ordered_right_to_left[i].cam_points]) - max([pt.y for pt in ordered_right_to_left[j].cam_points]) < GRIPPER_WIDTH and \
-                            min([pt.x for pt in ordered_right_to_left[j].cam_points]) - max([pt.x for pt in ordered_right_to_left[i].cam_points]) < GRIPPER_LENGTH_PAST_STALK:
+                    if min([pt.y for pt in ordered_right_to_left[i].points]) - max([pt.y for pt in ordered_right_to_left[j].points]) < GRIPPER_WIDTH and \
+                            min([pt.x for pt in ordered_right_to_left[j].points]) - max([pt.x for pt in ordered_right_to_left[i].points]) < GRIPPER_LENGTH_PAST_STALK:
                         is_free = False
                         break
 
@@ -452,7 +476,7 @@ class DetectNode:
                 mask_width = np.mean(widths)
 
                 # Use the y coordinate in camera frame
-                distance_from_center = abs(np.mean([p.y for p in stalk.cam_points]))
+                distance_from_center = abs(np.mean([p.y for p in stalk.points]))
 
                 weight = (stalk.score ** 2) * mask_width * (math.pow(mask_height, 1/3)) * (1 - distance_from_center)
 
@@ -497,7 +521,7 @@ class DetectNode:
             best_stalk = frame_best_stalks[0]
 
         print(colored('Found stalk with approximate position (X: {}, Y: {}, Z: {})'.format(
-            np.mean([p.x for p in best_stalk.cam_points]), np.mean([p.y for p in best_stalk.cam_points]), np.mean([p.z for p in best_stalk.cam_points])), 'green'))
+            np.mean([p.x for p in best_stalk.points]), np.mean([p.y for p in best_stalk.points]), np.mean([p.z for p in best_stalk.points])), 'green'))
 
         # Stop the camera driver
         cls.stop_realsense()

@@ -82,6 +82,26 @@ class Transformer():
 
         return Point(x=transformed_pt[0], y=transformed_pt[1], z=transformed_pt[2])
 
+    def transform_instrinsic(self, pt: Point) -> Point:
+        '''
+        Transform a point from the camera frame to the robot frame for this transform
+
+        Parameters
+            pt (geometry_msgs.msg.Point): The point to transform
+
+        Returns
+            geometry_msgs.msg.Point: The transformed point
+        '''
+        # Normalize the point
+        x = (pt.x - self.intrinsic[0, 2]) / self.intrinsic[0, 0]
+        y = (pt.y - self.intrinsic[1, 2]) / self.intrinsic[1, 1]
+
+        # Scale with depth
+        x *= pt.z
+        y *= pt.z
+
+        return Point(x=x, y=y, z=pt.z)
+
     def transform_world_to_cam_frame(self, pt: Point) -> Point:
         '''
         Transform a point from the robot frame to the camera frame for this transform
