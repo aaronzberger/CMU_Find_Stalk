@@ -33,7 +33,7 @@ class Visualizer:
         cls.data_to_ros_type = {
             np.ndarray: (Image, lambda img: CvBridge().cv2_to_imgmsg(img, encoding='bgr8')),
             Point: (Marker, lambda pt: cls._point_to_marker(pt, (255, 0, 0), cls.marker_counter, 0.007)),
-            o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id=CAMERA_COLOR_FRAME, stamp=rospy.Time.now())),
+            o3d.geometry.PointCloud: (PointCloud2, lambda pcl: orh.o3dpc_to_rospc(pcl, frame_id='camera_color_optical_frame', stamp=rospy.Time.now())),
             list: (MarkerArray, lambda lst: cls.list_to_marker_array(lst)),
             Stalk: (Marker, lambda pts: cls.stalk_to_viz(pts))
         }
@@ -54,12 +54,13 @@ class Visualizer:
             visualization_msgs.msg.Marker: the marker
         '''
         top_z = max([p.z for p in stalk.points])
+        bottom_z = min([p.z for p in stalk.points])
 
         top_x, top_y = find_xy_from_z(stalk.line, top_z)
-        bottom_x, bottom_y = find_xy_from_z(stalk.line, 0)
+        bottom_x, bottom_y = find_xy_from_z(stalk.line, bottom_z)
 
         top_point = Point(x=top_x, y=top_y, z=top_z)
-        bottom_point = Point(x=bottom_x, y=bottom_y, z=0)
+        bottom_point = Point(x=bottom_x, y=bottom_y, z=bottom_z)
 
         marker = Marker()
         marker.header.frame_id = CAMERA_COLOR_FRAME

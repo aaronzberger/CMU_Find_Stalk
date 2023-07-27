@@ -115,11 +115,7 @@ class DetectNode:
 
             median = np.median(depths) / DEPTH_SCALE
 
-            if median == 0:
-                print('Sampled from range {} to {} but got median depth of 0'.format(start_y, stop_y))
-                return None
-
-            return median
+            return None if median == 0 else median
 
         # Get the center points of the stalks
         stalks_features = []
@@ -143,7 +139,7 @@ class DetectNode:
             # Invert the x and y values to "undo" the openCV indexing
             if depth is not None:
                 stalk_features.append(Point(x=cls.camera_width - np.median(np.nonzero(mask[:, top_y])[0]),
-                                        y=cls.camera_height - top_y, z=depth))
+                                            y=cls.camera_height - top_y, z=depth))
 
             # For every FEATURE_POINT_PIXEL_OFFSET pixels, get the center point
             for y in range(bottom_y, top_y, FEATURE_POINT_PIXEL_OFFSET):
@@ -216,6 +212,8 @@ class DetectNode:
         # Get the stalks in the best cluster
         best_stalks = [stalks[i] for i in best_cluster_index]
 
+        # TODO: Intelligently choose a representative stalk from the cluster
+
         return best_stalks[0]
 
     @classmethod
@@ -224,15 +222,15 @@ class DetectNode:
         Get the point cloud
 
         Parameters
-            image (sensor_msgs.msg.Image): The depth image
+            image (openCV Image): The image
+            depth_image (openCV Image): The depth image
 
         Returns
             point_cloud (pcl PointCloud): The point cloud
         '''
         pcd = o3d.geometry.PointCloud.create_from_rgbd_image(
             o3d.geometry.RGBDImage.create_from_color_and_depth(
-                o3d.geometry.Image(cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8')),
-                o3d.geometry.Image(cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding='mono8')),
+                o3d.geometry.Image(image), o3d.geometry.Image(depth_image),
                 depth_scale=DEPTH_SCALE, depth_trunc=DEPTH_TRUNC, convert_rgb_to_intensity=False),
             o3d.camera.PinholeCameraIntrinsic(
                 transformer.width, transformer.height, transformer.intrinsic))
@@ -395,14 +393,19 @@ class DetectNode:
 
             cv_depth_image = cls.cv_bridge.imgmsg_to_cv2(depth_image, desired_encoding="passthrough")
             cv_depth_image = np.array(cv_depth_image, dtype=np.float32)
+            cv_image = cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='rgb8')
+
+            # Display image and depth
+            # if VISUALIZE:
+                # cv.imwrite('masks/IMAGE{}-{}.png'.format(cls.call_index, cls.image_index), cv_image)
+                # cv.imwrite('masks/DEPTH{}-{}.png'.format(cls.call_index, cls.image_index), cv_depth_image)
 
             # region Feature extraction
             stalks_features: list[list[Point]] = cls.get_features(masks, cv_depth_image)
 
             # Visualize the stalks features on the image
             if VISUALIZE:
-                cv_image = cls.cv_bridge.imgmsg_to_cv2(image, desired_encoding='bgr8')
-                features_image = cls.model.visualize(cv_image, output).astype(np.uint8)
+                features_image = cls.model.visualize(cv.cvtColor(cv_image, cv.COLOR_RGB2BGR, cv_image), output).astype(np.uint8)
                 for stalk in stalks_features:
                     for point in stalk:
                         try:
@@ -437,7 +440,10 @@ class DetectNode:
 
             if VISUALIZE:
                 cls.visualizer.new_frame()
-                cls.visualizer.publish_item('features', stalks_features, marker_color=[255, 0, 0])
+
+                # pointcloud = cls.get_pcl(cv_image, cv_depth_image, transformer)
+                # cls.visualizer.publish_item('pointcloud', pointcloud)
+                cls.visualizer.publish_item('features', stalks_features, marker_size=0.005, marker_color=[255, 0, 0])
                 for stalk in stalks:
                     cls.visualizer.publish_item('stalk_lines', stalk, marker_color=[255, 255, 0], marker_size=0.01)
 
@@ -453,7 +459,7 @@ class DetectNode:
                 is_free = True
                 for j in range(0, i):
                     # NOTE: Temporary assertion
-                    # assert ordered_right_to_left[i].horizontal_pos >= ordered_right_to_left[j].horizontal_pos
+                    # assert np.median([pt.y for pt in ordered_right_to_left[i].points]) >= np.median([pt.y for pt in ordered_right_to_left[j].points])
 
                     if min([pt.y for pt in ordered_right_to_left[i].points]) - max([pt.y for pt in ordered_right_to_left[j].points]) < GRIPPER_WIDTH and \
                             min([pt.x for pt in ordered_right_to_left[j].points]) - max([pt.x for pt in ordered_right_to_left[i].points]) < GRIPPER_LENGTH_PAST_STALK:
