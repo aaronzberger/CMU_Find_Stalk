@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(stalk_detect)
+project(stalk_detect_vision)
 
 ## Find catkin macros and libraries
 find_package(catkin REQUIRED COMPONENTS
@@ -16,17 +16,10 @@ catkin_python_setup()
 ## Declare ROS messages, services and actions ##
 ################################################
 
-## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-  line.msg
-  stalk.msg
-)
-
 ## Generate services in the 'srv' folder
 add_service_files(
   FILES
-  GetStalk.srv
+  GetStalkVision.srv
 )
 
 ## Generate added messages and services with any dependencies listed here
@@ -40,7 +33,7 @@ generate_messages(
 ###################################
 
 catkin_package(
- LIBRARIES stalk_detect
+ LIBRARIES stalk_detect_vision
  CATKIN_DEPENDS geometry_msgs rospy sensor_msgs std_msgs message_runtime
 )
 
@@ -57,6 +50,6 @@ include_directories(
 )
 
 install(PROGRAMS
-  scripts/stalk_detect
+  scripts/stalk_detect_vision
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
 )

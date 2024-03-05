@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>stalk_detect</name>
+  <name>stalk_detect_vision</name>
   <version>0.1.0</version>
   <description>Detect the best stalk and get an XYZ position</description>
 

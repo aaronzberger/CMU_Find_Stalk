@@ -4,7 +4,7 @@ from detectron2.data.catalog import MetadataCatalog
 from detectron2.engine import DefaultPredictor
 from detectron2.utils.visualizer import ColorMode, Visualizer
 
-from stalk_detect.config import CUDA_DEVICE_NO, MODEL_PATH, SCORE_THRESHOLD
+from stalk_detect_vision.config import CUDA_DEVICE_NO, MODEL_PATH, SCORE_THRESHOLD
 
 
 class MaskRCNN:
@@ -67,12 +67,9 @@ class MaskRCNN:
             np.ndarray: visualized results
         '''
 
-        metadata = MetadataCatalog.get('empty')
-        metadata.thing_colors = [(255, 0, 0)]
-
         v = Visualizer(input_image[:, :, ::-1],
                        metadata=MetadataCatalog.get('empty'),
-                       instance_mode=ColorMode.SEGMENTATION)  # remove the colors of unsegmented pixels
+                       instance_mode=ColorMode.IMAGE_BW)  # remove the colors of unsegmented pixels
 
         v = v.draw_instance_predictions(output['instances'].to('cpu'))
 
